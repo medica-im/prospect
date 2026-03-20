@@ -1,0 +1,85 @@
+[04:15:52.236] [INFO] [36mInitializing Storybook[39m
+[04:15:54.098] [DEBUG] Getting package.json info for /home/elkcloner/git/prospect/frontend/package.json...
+[04:15:54.101] [DEBUG] Getting CLI versions from NPM for storybook...
+[04:15:54.101] [DEBUG] Executing command: npm info storybook version
+[04:15:54.526] [INFO] Adding Storybook version 10.3.1 to your project
+[04:15:54.530] [DEBUG] Project type detected: sveltekit
+[04:15:54.530] [DEBUG] Using cached package.json for /home/elkcloner/git/prospect/frontend/package.json...
+[04:15:54.531] [INFO] Framework detected: sveltekit
+[04:15:54.532] [DEBUG] Getting installed version for vitest...
+[04:15:54.532] [DEBUG] Executing command: npm ls --json --depth=99 2>/dev/null
+[04:15:54.977] [DEBUG] Executing command: npm ls --json --depth=0 2>/dev/null
+[04:15:55.422] [DEBUG] Error finding installations for vitest: ExecaError: Command failed with exit code 1: npm ls --json '--depth=0' '2>/dev/null'
+[04:15:55.422] [DEBUG] No installations found for vitest
+[04:15:55.422] [DEBUG] Getting installed version for msw...
+[04:15:55.422] [DEBUG] Executing command: npm ls --json --depth=99 2>/dev/null
+[04:15:55.819] [DEBUG] Executing command: npm ls --json --depth=0 2>/dev/null
+[04:15:56.224] [DEBUG] Error finding installations for msw: ExecaError: Command failed with exit code 1: npm ls --json '--depth=0' '2>/dev/null'
+[04:15:56.224] [DEBUG] No installations found for msw
+[04:16:08.375] [PROMPT] New to Storybook? {"choice":true}
+[04:16:08.376] [INFO] Storybook collects completely anonymous usage telemetry. We use it to shape Storybook's roadmap and prioritize features. You can learn more, including how to opt out, at https://storybook.js.org/telemetry
+[04:16:08.907] [INFO] base-generator-task-start: Generating Storybook configuration
+[04:16:08.908] [DEBUG] Using cached package.json for /home/elkcloner/git/prospect/frontend/package.json...
+[04:16:08.908] [DEBUG] Using cached package.json for /home/elkcloner/git/prospect/frontend/package.json...
+[04:16:08.908] [DEBUG] Using cached package.json for /home/elkcloner/git/prospect/frontend/package.json...
+[04:16:08.909] [INFO] base-generator-task: - Configuring ESLint plugin
+[04:16:08.910] [DEBUG] Detected flat config at /home/elkcloner/git/prospect/frontend/eslint.config.js
+[04:16:08.979] [DEBUG] Getting CLI versions from NPM for storybook...
+[04:16:08.979] [DEBUG] Executing command: npm info storybook version
+[04:16:08.987] [DEBUG] Getting CLI versions from NPM for @storybook/sveltekit...
+[04:16:08.987] [DEBUG] Executing command: npm info @storybook/sveltekit version
+[04:16:08.997] [DEBUG] Getting CLI versions from NPM for @storybook/addon-svelte-csf...
+[04:16:08.997] [DEBUG] Executing command: npm info @storybook/addon-svelte-csf version
+[04:16:09.002] [DEBUG] Getting CLI versions from NPM for @chromatic-com/storybook...
+[04:16:09.002] [DEBUG] Executing command: npm info @chromatic-com/storybook version
+[04:16:09.014] [DEBUG] Getting CLI versions from NPM for @storybook/addon-vitest...
+[04:16:09.014] [DEBUG] Executing command: npm info @storybook/addon-vitest version
+[04:16:09.036] [DEBUG] Getting CLI versions from NPM for @storybook/addon-a11y...
+[04:16:09.036] [DEBUG] Executing command: npm info @storybook/addon-a11y version
+[04:16:09.047] [DEBUG] Getting CLI versions from NPM for @storybook/addon-docs...
+[04:16:09.047] [DEBUG] Executing command: npm info @storybook/addon-docs version
+[04:16:09.059] [DEBUG] Getting CLI versions from NPM for eslint-plugin-storybook...
+[04:16:09.059] [DEBUG] Executing command: npm info eslint-plugin-storybook version
+[04:16:10.528] [INFO] base-generator-task: - Configuring main.ts
+[04:16:10.530] [INFO] base-generator-task: - Configuring preview.ts
+[04:16:10.531] [INFO] base-generator-task: - Adding Storybook command to package.json
+[04:16:10.532] [DEBUG] Getting package.json info for /home/elkcloner/git/prospect/frontend/package.json...
+[04:16:10.532] [DEBUG] Using cached package.json for /home/elkcloner/git/prospect/frontend/package.json...
+[04:16:10.532] [DEBUG] Using cached package.json for /home/elkcloner/git/prospect/frontend/package.json...
+[04:16:10.533] [INFO] base-generator-task: - Copying framework templates
+[04:16:10.566] [DEBUG] Executing command: npm config get registry -ws=false -iwr
+[04:16:10.997] [ERROR] [38;2;241;97;97mError: Cannot find @storybook/sveltekit/package.json, Error: Cannot find module '@storybook/sveltekit/package.json'
+Require stack:
+- .
+    at Module._resolveFilename (node:internal/modules/cjs/loader:1456:15)
+    at require.resolve (node:internal/modules/helpers:163:19)
+    at resolvePackageDir (file:///home/elkcloner/.npm/_npx/05823ecb1a3a987d/node_modules/storybook/dist/_node-chunks/chunk-AX5YUU2A.js:725:26)
+    at getRendererDir (file:///home/elkcloner/.npm/_npx/05823ecb1a3a987d/node_modules/storybook/dist/_node-chunks/chunk-T7U2FUWA.js:5401:12)
+    at templatePath (file:///home/elkcloner/.npm/_npx/05823ecb1a3a987d/node_modules/storybook/dist/_node-chunks/chunk-T7U2FUWA.js:5484:25)
+    at copyTemplateFiles (file:///home/elkcloner/.npm/_npx/05823ecb1a3a987d/node_modules/storybook/dist/_node-chunks/chunk-T7U2FUWA.js:5499:23)
+    at async baseGenerator (file:///home/elkcloner/.npm/_npx/05823ecb1a3a987d/node_modules/create-storybook/dist/_node-chunks/chunk-I3X4EDBU.js:1298:152)
+    at async GeneratorExecutionCommand.executeProjectGenerator (file:///home/elkcloner/.npm/_npx/05823ecb1a3a987d/node_modules/create-storybook/dist/_node-chunks/chunk-I3X4EDBU.js:1366:101)
+    at async GeneratorExecutionCommand.execute (file:///home/elkcloner/.npm/_npx/05823ecb1a3a987d/node_modules/create-storybook/dist/_node-chunks/chunk-I3X4EDBU.js:1388:27)
+    at async doInitiate (file:///home/elkcloner/.npm/_npx/05823ecb1a3a987d/node_modules/create-storybook/dist/_node-chunks/chunk-I3X4EDBU.js:2900:68)
+
+ExecaError: Command failed with exit code 1: npm config get registry '-ws=false' -iwr
+    at getFinalError (file:///home/elkcloner/.npm/_npx/05823ecb1a3a987d/node_modules/storybook/dist/_node-chunks/chunk-X6B7XGEZ.js:13109:10)
+    at makeError (file:///home/elkcloner/.npm/_npx/05823ecb1a3a987d/node_modules/storybook/dist/_node-chunks/chunk-X6B7XGEZ.js:14645:15)
+    at getAsyncResult (file:///home/elkcloner/.npm/_npx/05823ecb1a3a987d/node_modules/storybook/dist/_node-chunks/chunk-X6B7XGEZ.js:17291:158)
+    at handlePromise (file:///home/elkcloner/.npm/_npx/05823ecb1a3a987d/node_modules/storybook/dist/_node-chunks/chunk-X6B7XGEZ.js:17277:162)
+    at async NPMProxy.getRegistryURL (file:///home/elkcloner/.npm/_npx/05823ecb1a3a987d/node_modules/storybook/dist/_node-chunks/chunk-X6B7XGEZ.js:17778:18)
+    at async resolveUsingBranchInstall (file:///home/elkcloner/.npm/_npx/05823ecb1a3a987d/node_modules/storybook/dist/_node-chunks/chunk-T7U2FUWA.js:5383:15)
+    at async getRendererDir (file:///home/elkcloner/.npm/_npx/05823ecb1a3a987d/node_modules/storybook/dist/_node-chunks/chunk-T7U2FUWA.js:5406:12)
+    at async templatePath (file:///home/elkcloner/.npm/_npx/05823ecb1a3a987d/node_modules/storybook/dist/_node-chunks/chunk-T7U2FUWA.js:5484:19)
+    at async copyTemplateFiles (file:///home/elkcloner/.npm/_npx/05823ecb1a3a987d/node_modules/storybook/dist/_node-chunks/chunk-T7U2FUWA.js:5499:17)
+    at async baseGenerator (file:///home/elkcloner/.npm/_npx/05823ecb1a3a987d/node_modules/create-storybook/dist/_node-chunks/chunk-I3X4EDBU.js:1298:152)[39m
+    at getRendererDir (file:///home/elkcloner/.npm/_npx/05823ecb1a3a987d/node_modules/storybook/dist/_node-chunks/chunk-T7U2FUWA.js:5410:9)
+    at async templatePath (file:///home/elkcloner/.npm/_npx/05823ecb1a3a987d/node_modules/storybook/dist/_node-chunks/chunk-T7U2FUWA.js:5484:19)
+    at async copyTemplateFiles (file:///home/elkcloner/.npm/_npx/05823ecb1a3a987d/node_modules/storybook/dist/_node-chunks/chunk-T7U2FUWA.js:5499:17)
+    at async baseGenerator (file:///home/elkcloner/.npm/_npx/05823ecb1a3a987d/node_modules/create-storybook/dist/_node-chunks/chunk-I3X4EDBU.js:1298:152)
+    at async GeneratorExecutionCommand.executeProjectGenerator (file:///home/elkcloner/.npm/_npx/05823ecb1a3a987d/node_modules/create-storybook/dist/_node-chunks/chunk-I3X4EDBU.js:1366:101)
+    at async GeneratorExecutionCommand.execute (file:///home/elkcloner/.npm/_npx/05823ecb1a3a987d/node_modules/create-storybook/dist/_node-chunks/chunk-I3X4EDBU.js:1388:27)
+    at async doInitiate (file:///home/elkcloner/.npm/_npx/05823ecb1a3a987d/node_modules/create-storybook/dist/_node-chunks/chunk-I3X4EDBU.js:2900:68)
+    at async file:///home/elkcloner/.npm/_npx/05823ecb1a3a987d/node_modules/create-storybook/dist/_node-chunks/chunk-I3X4EDBU.js:2942:20
+    at async withTelemetry (file:///home/elkcloner/.npm/_npx/05823ecb1a3a987d/node_modules/storybook/dist/_node-chunks/chunk-CRA4LABS.js:218:12)
+    at async initiate (file:///home/elkcloner/.npm/_npx/05823ecb1a3a987d/node_modules/create-storybook/dist/_node-chunks/chunk-I3X4EDBU.js:2935:24)

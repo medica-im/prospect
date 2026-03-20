@@ -1,0 +1,31 @@
+# Virtual environments
+venv/
+env/
+.venv/
+ENV/
+
+# Poetry typically doesn't create these in project dir
+# but just in case:
+*.egg-info/
+dist/
+build/
+
+# Environment
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.pytest_cache/
+
+# Django static files (collectstatic output)
+backend/staticfiles/
+
+# Frontend
+node_modules/
+.svelte-kit/
+
+# Claude
+.claude/
+CLAUDE.md
