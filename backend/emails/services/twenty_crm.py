@@ -29,10 +29,18 @@ def fetch_companies() -> list[dict]:
 
             for company in data:
                 email_data = company.get("email") or {}
+                emails = []
+                primary = email_data.get("primaryEmail", "")
+                if primary:
+                    emails.append(primary)
+                for extra in email_data.get("additionalEmails", None) or []:
+                    if extra and extra not in emails:
+                        emails.append(extra)
+
                 companies.append({
                     "id": company["id"],
                     "name": company.get("name", ""),
-                    "email": email_data.get("primaryEmail", ""),
+                    "emails": emails,
                     "company_type": company.get("companyType"),
                     "domain": (company.get("domainName") or {}).get("primaryLinkUrl", ""),
                     "city": (company.get("address") or {}).get("addressCity", ""),

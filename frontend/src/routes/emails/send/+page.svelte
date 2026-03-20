@@ -1,5 +1,6 @@
 <script lang="ts">
 	import CompanyTable from '$lib/emails/CompanyTable.svelte';
+	import type { SelectedRecipient } from '$lib/emails/CompanyTable.svelte';
 	import TemplateSelector from '$lib/emails/TemplateSelector.svelte';
 	import SendConfirmation from '$lib/emails/SendConfirmation.svelte';
 	import type { PageData } from './$types';
@@ -8,28 +9,22 @@
 	let { data }: { data: PageData } = $props();
 
 	let currentStep = $state(0);
-	let selectedCompanies = $state<any[]>([]);
+	let selectedRecipients = $state<SelectedRecipient[]>([]);
 	let selectedTemplate = $state<any>(null);
 
 	let selectedCompanyTypes = $derived(
-		new Set(selectedCompanies.map((c) => c.company_type))
+		new Set(selectedRecipients.map((r) => r.company_type))
 	);
 
 	let recipientsJson = $derived(
 		JSON.stringify(
-			selectedCompanies
-				.filter((c) => c.email)
-				.map((c) => ({
-					company_name: c.name,
-					company_email: c.email,
-					company_type_id: selectedTemplate?.company_type?.id ?? 0,
-					twenty_crm_id: c.id
-				}))
+			selectedRecipients.map((r) => ({
+				company_name: r.company_name,
+				company_email: r.company_email,
+				company_type_id: selectedTemplate?.company_type?.id ?? 0,
+				twenty_crm_id: r.company_id
+			}))
 		)
-	);
-
-	let companiesWithoutEmail = $derived(
-		selectedCompanies.filter((c) => !c.email)
 	);
 
 	let formResult = $derived(sendEmails.result);
@@ -59,23 +54,17 @@
 </div>
 
 {#if currentStep === 0}
-	<!-- Step 0: Select companies -->
+	<!-- Step 0: Select companies and emails -->
 	<CompanyTable
 		companies={data.companies}
 		companyTypes={data.companyTypes}
-		bind:selectedCompanies
+		bind:selectedRecipients
 	/>
-
-	{#if companiesWithoutEmail.length > 0}
-		<div class="mt-4 p-3 preset-tonal-warning-500 rounded text-sm">
-			{companiesWithoutEmail.length} selected company(ies) have no email and will be skipped.
-		</div>
-	{/if}
 
 	<div class="flex justify-end mt-6">
 		<button
 			class="btn preset-filled-primary-500"
-			disabled={selectedCompanies.filter((c) => c.email).length === 0}
+			disabled={selectedRecipients.length === 0}
 			onclick={() => (currentStep = 1)}
 		>
 			Next: Choose Template →
@@ -122,7 +111,7 @@
 			{#if sendEmails.pending}
 				Sending...
 			{:else}
-				Send {selectedCompanies.filter((c) => c.email).length} Email(s)
+				Send {selectedRecipients.length} Email(s)
 			{/if}
 		</button>
 	</form>

@@ -16,7 +16,7 @@ class CompanyTypeOut(Schema):
 class CompanyOut(Schema):
     id: str
     name: str
-    email: str
+    emails: list[str]
     company_type: str | None = None
     domain: str
     city: str
