@@ -1,5 +1,5 @@
 import { env } from '$env/dynamic/private';
-import { form } from '$app/server';
+import { getRequestEvent, form } from '$app/server';
 import * as z from 'zod';
 
 const API = env.BACKEND_API_URL || 'http://localhost:8000';
@@ -15,9 +15,14 @@ const SendEmailPost = z.object({
 });
 
 export const sendEmails = form(SendEmailPost, async (data) => {
+	const { cookies } = getRequestEvent();
+	const sessionId = cookies.get('sessionid');
+	const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+	if (sessionId) headers['Cookie'] = `sessionid=${sessionId}`;
+
 	const response = await fetch(`${API}/api/emails/send`, {
 		method: 'POST',
-		headers: { 'Content-Type': 'application/json' },
+		headers,
 		body: JSON.stringify(data),
 	});
 

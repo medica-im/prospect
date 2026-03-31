@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { ExternalLinkIcon } from '@lucide/svelte';
+
 	type Company = {
 		id: string;
 		name: string;
@@ -6,6 +8,7 @@
 		company_type: string;
 		domain: string;
 		city: string;
+		created_at: string;
 	};
 
 	type CompanyType = {
@@ -24,15 +27,18 @@
 	let {
 		companies,
 		companyTypes,
+		twentyBaseUrl = '',
 		selectedRecipients = $bindable([])
 	}: {
 		companies: Company[];
 		companyTypes: CompanyType[];
+		twentyBaseUrl?: string;
 		selectedRecipients: SelectedRecipient[];
 	} = $props();
 
 	let search = $state('');
 	let typeFilter = $state('');
+	let sortNewestFirst = $state(true);
 
 	let filtered = $derived.by(() => {
 		let result = companies;
@@ -48,6 +54,11 @@
 		if (typeFilter) {
 			result = result.filter((c) => c.company_type === typeFilter);
 		}
+		result = [...result].sort((a, b) => {
+			const da = new Date(a.created_at).getTime();
+			const db = new Date(b.created_at).getTime();
+			return sortNewestFirst ? db - da : da - db;
+		});
 		return result;
 	});
 
@@ -169,6 +180,18 @@
 					<th>Type</th>
 					<th class="hidden lg:table-cell">City</th>
 					<th class="hidden lg:table-cell">Domain</th>
+					<th class="hidden lg:table-cell">
+						<button
+							type="button"
+							class="text-sm font-bold text-surface-500 hover:text-surface-900 transition-colors"
+							onclick={() => (sortNewestFirst = !sortNewestFirst)}
+						>
+							Created at {sortNewestFirst ? '↓' : '↑'}
+						</button>
+					</th>
+					{#if twentyBaseUrl}
+						<th class="hidden lg:table-cell">CRM</th>
+					{/if}
 				</tr>
 			</thead>
 			<tbody>
@@ -235,10 +258,33 @@
 								—
 							{/if}
 						</td>
+						<td class="hidden lg:table-cell text-sm text-surface-600 whitespace-nowrap">
+							{new Date(company.created_at).toLocaleDateString('fr-FR', {
+								day: '2-digit',
+								month: '2-digit',
+								year: 'numeric',
+								hour: '2-digit',
+								minute: '2-digit'
+							})}
+						</td>
+						{#if twentyBaseUrl}
+							<td class="hidden lg:table-cell">
+								<a
+									href="{twentyBaseUrl}/object/company/{company.id}"
+									target="_blank"
+									rel="noopener"
+									class="text-surface-500 hover:text-surface-900 transition-colors"
+									title="Open in Twenty CRM"
+									onclick={(e: MouseEvent) => e.stopPropagation()}
+								>
+									<ExternalLinkIcon class="size-4" />
+								</a>
+							</td>
+						{/if}
 					</tr>
 				{:else}
 					<tr>
-						<td colspan="6" class="text-center text-surface-500">No companies found.</td>
+						<td colspan="8" class="text-center text-surface-500">No companies found.</td>
 					</tr>
 				{/each}
 			</tbody>

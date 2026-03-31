@@ -20,6 +20,7 @@ class CompanyOut(Schema):
     company_type: str | None = None
     domain: str
     city: str
+    created_at: str
 
 
 # --- Templates ---

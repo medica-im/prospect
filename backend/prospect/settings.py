@@ -10,26 +10,35 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
-import os
+import environ
 from pathlib import Path
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+env = environ.Env(
+    DJANGO_DEBUG=(bool, True),
+    DJANGO_ALLOWED_HOSTS=(list, ['localhost', '127.0.0.1']),
+    CORS_ALLOW_ALL_ORIGINS=(bool, False),
+)
+environ.Env.read_env(BASE_DIR / '.env', overwrite=False)
+
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
-SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'django-insecure-^31j2is_qqpxn-ic=c2kn%d)rhp_^=860)zt=618l2a5%*(r8t')
+SECRET_KEY = env('DJANGO_SECRET_KEY', default='django-insecure-^31j2is_qqpxn-ic=c2kn%d)rhp_^=860)zt=618l2a5%*(r8t')
 
-DEBUG = os.environ.get('DJANGO_DEBUG', 'True').lower() in ('true', '1')
+DEBUG = env('DJANGO_DEBUG')
 
-ALLOWED_HOSTS = os.environ.get('DJANGO_ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
+ALLOWED_HOSTS = env('DJANGO_ALLOWED_HOSTS')
 
+CORS_ALLOW_ALL_ORIGINS = env('CORS_ALLOW_ALL_ORIGINS')
 
 # Application definition
 
 INSTALLED_APPS = [
+    'corsheaders',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -42,6 +51,7 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
+    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
@@ -75,11 +85,11 @@ WSGI_APPLICATION = 'prospect.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': os.environ.get('POSTGRES_DB', 'prospect'),
-        'USER': os.environ.get('POSTGRES_USER', 'prospect'),
-        'PASSWORD': os.environ.get('POSTGRES_PASSWORD', ''),
-        'HOST': os.environ.get('POSTGRES_HOST', 'localhost'),
-        'PORT': os.environ.get('POSTGRES_PORT', '5432'),
+        'NAME': env('POSTGRES_DB', default='prospect'),
+        'USER': env('POSTGRES_USER', default='prospect'),
+        'PASSWORD': env('POSTGRES_PASSWORD', default=''),
+        'HOST': env('POSTGRES_HOST', default='localhost'),
+        'PORT': env('POSTGRES_PORT', default='5432'),
     }
 }
 
@@ -127,21 +137,25 @@ STATIC_ROOT = BASE_DIR / 'staticfiles'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # Celery
-CELERY_BROKER_URL = os.environ.get('CELERY_BROKER_URL', 'amqp://guest:guest@rabbitmq:5672//')
-CELERY_RESULT_BACKEND = os.environ.get('CELERY_RESULT_BACKEND', 'redis://redis:6379/0')
+CELERY_BROKER_URL = env('CELERY_BROKER_URL', default='amqp://guest:guest@rabbitmq:5672//')
+CELERY_RESULT_BACKEND = env('CELERY_RESULT_BACKEND', default='redis://redis:6379/0')
 
 # Mailgun
-MAILGUN_API_URL = os.environ.get('MAILGUN_API_URL', '')
-MAILGUN_SENDING_KEY_ID = os.environ.get('MAILGUN_SENDING_KEY_ID', '')
-MAILGUN_SENDING_KEY = os.environ.get('MAILGUN_SENDING_KEY', '')
-MAILGUN_DOMAIN = os.environ.get('MAILGUN_DOMAIN', '')
-MAILGUN_FROM_EMAIL = os.environ.get('MAILGUN_FROM_EMAIL', '')
+MAILGUN_API_URL = env('MAILGUN_API_URL', default='')
+MAILGUN_SENDING_KEY_ID = env('MAILGUN_SENDING_KEY_ID', default='')
+MAILGUN_SENDING_KEY = env('MAILGUN_SENDING_KEY', default='')
+MAILGUN_DOMAIN = env('MAILGUN_DOMAIN', default='')
+MAILGUN_FROM_EMAIL = env('MAILGUN_FROM_EMAIL', default='')
 
 # Twenty CRM
-TWENTY_API_URL = os.environ.get('TWENTY_API_URL', '')
-TWENTY_API_KEY = os.environ.get('TWENTY_API_KEY', '')
+TWENTY_API_URL = env('TWENTY_API_URL', default='')
+TWENTY_API_KEY = env('TWENTY_API_KEY', default='')
+
+# Session
+SESSION_COOKIE_AGE = 86400 * 30  # 30 days
+SESSION_COOKIE_HTTPONLY = True
 
 # IMAP (Dovecot)
-IMAP_SERVER = os.environ.get('IMAP_SERVER', '')
-IMAP_EMAIL = os.environ.get('IMAP_EMAIL', '')
-IMAP_PASSWORD = os.environ.get('IMAP_PASSWORD', '')
+IMAP_SERVER = env('IMAP_SERVER', default='')
+IMAP_EMAIL = env('IMAP_EMAIL', default='')
+IMAP_PASSWORD = env('IMAP_PASSWORD', default='')

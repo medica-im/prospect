@@ -58,6 +58,7 @@
 	<CompanyTable
 		companies={data.companies}
 		companyTypes={data.companyTypes}
+		twentyBaseUrl={data.twentyBaseUrl}
 		bind:selectedRecipients
 	/>
 

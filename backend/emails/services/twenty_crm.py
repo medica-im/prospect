@@ -44,6 +44,7 @@ def fetch_companies() -> list[dict]:
                     "company_type": company.get("companyType"),
                     "domain": (company.get("domainName") or {}).get("primaryLinkUrl", ""),
                     "city": (company.get("address") or {}).get("addressCity", ""),
+                    "created_at": company.get("createdAt", ""),
                 })
 
             if not page_info.get("hasNextPage", False):
