@@ -55,14 +55,7 @@
 
 {#if currentStep === 0}
 	<!-- Step 0: Select companies and emails -->
-	<CompanyTable
-		companies={data.companies}
-		companyTypes={data.companyTypes}
-		twentyBaseUrl={data.twentyBaseUrl}
-		bind:selectedRecipients
-	/>
-
-	<div class="flex justify-end mt-6">
+	<div class="flex justify-end mb-4">
 		<button
 			class="btn preset-filled-primary-500"
 			disabled={selectedRecipients.length === 0}
@@ -71,6 +64,13 @@
 			Next: Choose Template →
 		</button>
 	</div>
+
+	<CompanyTable
+		companies={data.companies}
+		companyTypes={data.companyTypes}
+		twentyBaseUrl={data.twentyBaseUrl}
+		bind:selectedRecipients
+	/>
 
 {:else if currentStep === 1}
 	<!-- Step 1: Select template -->
