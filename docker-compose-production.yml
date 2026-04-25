@@ -79,6 +79,8 @@ services:
     build: ./frontend
     env_file:
       - .env.frontend
+    environment:
+      NODE_OPTIONS: "--dns-result-order=ipv4first"
     ports:
       - "127.0.0.1:${FRONTEND_PORT:-3000}:3000"
     depends_on:
