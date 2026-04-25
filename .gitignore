@@ -29,3 +29,6 @@ node_modules/
 # Claude
 .claude/
 CLAUDE.md
+
+# postgres database dir
+postgres_data/
