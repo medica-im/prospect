@@ -65,6 +65,11 @@ class SentEmailOut(Schema):
     error_message: str
 
 
+class CompanyEmailStats(Schema):
+    total_sent: int
+    last_sent_at: datetime | None = None
+
+
 class SentEmailPreview(Schema):
     id: int
     subject: str

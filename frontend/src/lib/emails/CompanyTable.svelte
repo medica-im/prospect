@@ -17,6 +17,11 @@
 		label: string;
 	};
 
+	type EmailStats = {
+		total_sent: number;
+		last_sent_at: string | null;
+	};
+
 	export type SelectedRecipient = {
 		company_id: string;
 		company_name: string;
@@ -28,17 +33,42 @@
 		companies,
 		companyTypes,
 		twentyBaseUrl = '',
+		emailStats = {},
 		selectedRecipients = $bindable([])
 	}: {
 		companies: Company[];
 		companyTypes: CompanyType[];
 		twentyBaseUrl?: string;
+		emailStats?: Record<string, EmailStats>;
 		selectedRecipients: SelectedRecipient[];
 	} = $props();
 
+	function getHeatColor(dateStr: string | null | undefined): string {
+		if (!dateStr) return 'text-surface-400';
+		const now = Date.now();
+		const sent = new Date(dateStr).getTime();
+		const days = (now - sent) / (1000 * 60 * 60 * 24);
+		if (days < 7) return 'text-green-600';
+		if (days < 30) return 'text-yellow-600';
+		if (days < 90) return 'text-orange-500';
+		if (days < 180) return 'text-red-500';
+		if (days < 365) return 'text-red-700';
+		return 'text-red-900';
+	}
+
 	let search = $state('');
 	let typeFilter = $state('');
-	let sortNewestFirst = $state(true);
+	let sortField = $state<'created_at' | 'last_sent' | 'sent_count'>('created_at');
+	let sortDesc = $state(true);
+
+	function toggleSort(field: 'created_at' | 'last_sent' | 'sent_count') {
+		if (sortField === field) {
+			sortDesc = !sortDesc;
+		} else {
+			sortField = field;
+			sortDesc = true;
+		}
+	}
 
 	let filtered = $derived.by(() => {
 		let result = companies;
@@ -55,9 +85,19 @@
 			result = result.filter((c) => c.company_type === typeFilter);
 		}
 		result = [...result].sort((a, b) => {
+			if (sortField === 'sent_count') {
+				const ca = emailStats[a.id]?.total_sent ?? 0;
+				const cb = emailStats[b.id]?.total_sent ?? 0;
+				return sortDesc ? cb - ca : ca - cb;
+			}
+			if (sortField === 'last_sent') {
+				const da = emailStats[a.id]?.last_sent_at ? new Date(emailStats[a.id].last_sent_at!).getTime() : 0;
+				const db = emailStats[b.id]?.last_sent_at ? new Date(emailStats[b.id].last_sent_at!).getTime() : 0;
+				return sortDesc ? db - da : da - db;
+			}
 			const da = new Date(a.created_at).getTime();
 			const db = new Date(b.created_at).getTime();
-			return sortNewestFirst ? db - da : da - db;
+			return sortDesc ? db - da : da - db;
 		});
 		return result;
 	});
@@ -178,15 +218,33 @@
 					<th>Name</th>
 					<th>Email(s)</th>
 					<th>Type</th>
+					<th class="hidden md:table-cell">
+						<button
+							type="button"
+							class="text-sm font-bold text-surface-500 hover:text-surface-900 transition-colors whitespace-nowrap"
+							onclick={() => toggleSort('sent_count')}
+						>
+							Sent{sortField === 'sent_count' ? (sortDesc ? ' ↓' : ' ↑') : ''}
+						</button>
+					</th>
+					<th class="hidden md:table-cell">
+						<button
+							type="button"
+							class="text-sm font-bold text-surface-500 hover:text-surface-900 transition-colors whitespace-nowrap"
+							onclick={() => toggleSort('last_sent')}
+						>
+							Last email{sortField === 'last_sent' ? (sortDesc ? ' ↓' : ' ↑') : ''}
+						</button>
+					</th>
 					<th class="hidden lg:table-cell">City</th>
 					<th class="hidden lg:table-cell">Domain</th>
 					<th class="hidden lg:table-cell">
 						<button
 							type="button"
 							class="text-sm font-bold text-surface-500 hover:text-surface-900 transition-colors"
-							onclick={() => (sortNewestFirst = !sortNewestFirst)}
+							onclick={() => toggleSort('created_at')}
 						>
-							Created at {sortNewestFirst ? '↓' : '↑'}
+							Created at {sortField === 'created_at' ? (sortDesc ? '↓' : '↑') : ''}
 						</button>
 					</th>
 					{#if twentyBaseUrl}
@@ -242,6 +300,20 @@
 								<span class="badge preset-filled-surface-500 text-xs">{company.company_type}</span>
 							{/if}
 						</td>
+						<td class="hidden md:table-cell text-center">
+							{emailStats[company.id]?.total_sent ?? 0}
+						</td>
+						<td class="hidden md:table-cell whitespace-nowrap text-sm font-medium {getHeatColor(emailStats[company.id]?.last_sent_at)}">
+							{#if emailStats[company.id]?.last_sent_at}
+								{new Date(emailStats[company.id].last_sent_at!).toLocaleDateString('fr-FR', {
+									day: '2-digit',
+									month: '2-digit',
+									year: 'numeric'
+								})}
+							{:else}
+								<span class="text-surface-400">—</span>
+							{/if}
+						</td>
 						<td class="hidden lg:table-cell">{company.city || '—'}</td>
 						<td class="hidden lg:table-cell">
 							{#if company.domain}
@@ -284,7 +356,7 @@
 					</tr>
 				{:else}
 					<tr>
-						<td colspan="8" class="text-center text-surface-500">No companies found.</td>
+						<td colspan="10" class="text-center text-surface-500">No companies found.</td>
 					</tr>
 				{/each}
 			</tbody>

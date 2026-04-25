@@ -1,11 +1,13 @@
 import logging
 
 from django.conf import settings
+from django.db.models import Count, Max
 from django.shortcuts import get_object_or_404
 from ninja import Router
 
 from .models import CompanyType, EmailTemplate, SentEmail
 from .schemas import (
+    CompanyEmailStats,
     CompanyOut,
     CompanyTypeOut,
     EmailTemplateOut,
@@ -28,6 +30,28 @@ router = Router()
 @router.get("/company-types", response=list[CompanyTypeOut])
 def list_company_types(request):
     return CompanyType.objects.all()
+
+
+# --- Email Stats per Company ---
+
+@router.get("/email-stats", response=dict[str, CompanyEmailStats])
+def email_stats(request, twenty_crm_ids: str = ""):
+    """Return sent email count and last sent date per company (by twenty_crm_id)."""
+    ids = [i.strip() for i in twenty_crm_ids.split(",") if i.strip()]
+    qs = SentEmail.objects.filter(success=True)
+    if ids:
+        qs = qs.filter(twenty_crm_id__in=ids)
+    stats = qs.values("twenty_crm_id").annotate(
+        total_sent=Count("id"),
+        last_sent_at=Max("sent_at"),
+    )
+    return {
+        s["twenty_crm_id"]: CompanyEmailStats(
+            total_sent=s["total_sent"],
+            last_sent_at=s["last_sent_at"],
+        )
+        for s in stats
+    }
 
 
 # --- Companies (Twenty CRM proxy) ---
