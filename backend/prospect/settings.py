@@ -139,6 +139,8 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 # Celery
 CELERY_BROKER_URL = env('CELERY_BROKER_URL', default='amqp://guest:guest@rabbitmq:5672//')
 CELERY_RESULT_BACKEND = env('CELERY_RESULT_BACKEND', default='redis://redis:6379/0')
+CELERY_BROKER_TRANSPORT_OPTIONS = {'queue_durable': True}
+CELERY_TASK_DEFAULT_DELIVERY_MODE = 'persistent'
 
 # Mailgun
 MAILGUN_API_URL = env('MAILGUN_API_URL', default='')
