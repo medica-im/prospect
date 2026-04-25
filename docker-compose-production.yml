@@ -2,7 +2,7 @@ services:
   db:
     image: postgres:18
     volumes:
-      - postgres_data:/var/lib/postgresql
+      - ${POSTGRES_DATA}:/var/lib/postgresql
     env_file:
       - .env
     environment:
