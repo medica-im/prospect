@@ -26,7 +26,7 @@ services:
     restart: unless-stopped
 
   rabbitmq:
-    image: rabbitmq:4-alpine
+    image: rabbitmq:3-alpine
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
