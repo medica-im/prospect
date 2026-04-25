@@ -27,6 +27,8 @@ export const actions: Actions = {
 		});
 
 		if (!response.ok) {
+			const body = await response.text();
+			console.error(`Login failed: ${response.status} ${response.statusText}`, body);
 			return fail(401, { error: 'Invalid username or password.' });
 		}
 
