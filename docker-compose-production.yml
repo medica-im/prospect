@@ -46,6 +46,7 @@ services:
       - .env
     environment:
       DJANGO_DEBUG: "False"
+      CELERY_BROKER_URL: "amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672//"
     ports:
       - "127.0.0.1:${DJANGO_PORT:-8000}:8000"
     depends_on:
@@ -64,6 +65,7 @@ services:
       - .env
     environment:
       DJANGO_DEBUG: "False"
+      CELERY_BROKER_URL: "amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672//"
     depends_on:
       db:
         condition: service_healthy
