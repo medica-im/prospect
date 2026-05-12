@@ -35,13 +35,9 @@ def list_company_types(request):
 # --- Email Stats per Company ---
 
 @router.get("/email-stats", response=dict[str, CompanyEmailStats])
-def email_stats(request, twenty_crm_ids: str = ""):
+def email_stats(request):
     """Return sent email count and last sent date per company (by twenty_crm_id)."""
-    ids = [i.strip() for i in twenty_crm_ids.split(",") if i.strip()]
-    qs = SentEmail.objects.filter(success=True)
-    if ids:
-        qs = qs.filter(twenty_crm_id__in=ids)
-    stats = qs.values("twenty_crm_id").annotate(
+    stats = SentEmail.objects.filter(success=True).values("twenty_crm_id").annotate(
         total_sent=Count("id"),
         last_sent_at=Max("sent_at"),
     )
