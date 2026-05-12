@@ -6,7 +6,7 @@ RUN corepack enable && corepack prepare pnpm@latest --activate
 WORKDIR /app
 
 COPY package.json pnpm-lock.yaml ./
-RUN pnpm config set onlyBuiltDependencies "esbuild" && pnpm install --frozen-lockfile
+RUN echo 'onlyBuiltDependencies:\n  - esbuild' > pnpm-workspace.yaml && pnpm install --frozen-lockfile
 
 COPY . .
 RUN pnpm build
