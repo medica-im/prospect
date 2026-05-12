@@ -62,5 +62,8 @@
 		"@skeletonlabs/skeleton": "^4.13.0",
 		"@skeletonlabs/skeleton-svelte": "^4.13.0",
 		"zod": "^4.3.6"
+	},
+	"pnpm": {
+		"onlyBuiltDependencies": ["esbuild"]
 	}
 }
