@@ -24,16 +24,12 @@ WORKDIR /app
 
 COPY --from=builder /opt/venv /opt/venv
 
-RUN addgroup --system app && adduser --system --ingroup app app
-
-COPY --chown=app:app . .
+COPY . .
 
 ENV PATH="/opt/venv/bin:$PATH" \
     VIRTUAL_ENV="/opt/venv" \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
-
-USER app
 
 EXPOSE 8000
 
