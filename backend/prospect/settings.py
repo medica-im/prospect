@@ -47,6 +47,7 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'emails',
+    'twenty',
 ]
 
 MIDDLEWARE = [
@@ -137,9 +138,19 @@ STATIC_ROOT = BASE_DIR / 'staticfiles'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
+# Cache (Redis, shared with Celery result backend)
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.redis.RedisCache",
+        "LOCATION": env("CELERY_RESULT_BACKEND", default="redis://redis:6379/0"),
+    }
+}
+
 # Celery
 CELERY_BROKER_URL = env('CELERY_BROKER_URL', default='amqp://guest:guest@rabbitmq:5672//')
 CELERY_RESULT_BACKEND = env('CELERY_RESULT_BACKEND', default='redis://redis:6379/0')
+CELERY_TASK_TRACK_STARTED = True
+CELERY_RESULT_EXTENDED = True
 
 # Mailgun
 MAILGUN_API_URL = env('MAILGUN_API_URL', default='')

@@ -28,6 +28,8 @@ COPY . .
 
 ENV PATH="/opt/venv/bin:$PATH" \
     VIRTUAL_ENV="/opt/venv" \
+    DJANGO_SETTINGS_MODULE=prospect.settings \
+    PYTHONPATH="/app" \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
