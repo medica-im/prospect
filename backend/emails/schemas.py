@@ -13,6 +13,13 @@ class CompanyTypeOut(Schema):
 
 # --- Twenty CRM Companies ---
 
+class PeopleOut(Schema):
+    id: str
+    name: str
+    email: str
+    created_at: str
+
+
 class CompanyOut(Schema):
     id: str
     name: str
@@ -21,6 +28,7 @@ class CompanyOut(Schema):
     domain: str
     city: str
     created_at: str
+    people: list[PeopleOut] = []
 
 
 # --- Templates ---

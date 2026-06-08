@@ -1,6 +1,13 @@
 <script lang="ts">
 	import { ExternalLinkIcon } from '@lucide/svelte';
 
+	type Person = {
+		id: string;
+		name: string;
+		email: string;
+		created_at: string;
+	};
+
 	type Company = {
 		id: string;
 		name: string;
@@ -9,6 +16,7 @@
 		domain: string;
 		city: string;
 		created_at: string;
+		people: Person[];
 	};
 
 	type CompanyType = {
@@ -56,8 +64,33 @@
 		return 'text-red-900';
 	}
 
+	function companySentCount(company: Company): number {
+		let total = emailStats[company.id]?.total_sent ?? 0;
+		for (const p of company.people ?? []) {
+			total += emailStats[p.id]?.total_sent ?? 0;
+		}
+		return total;
+	}
+
+	function companyLastSent(company: Company): string | null {
+		let last = emailStats[company.id]?.last_sent_at ?? null;
+		for (const p of company.people ?? []) {
+			const pl = emailStats[p.id]?.last_sent_at;
+			if (pl && (!last || new Date(pl).getTime() > new Date(last).getTime())) {
+				last = pl;
+			}
+		}
+		return last;
+	}
+
 	let search = $state('');
 	let typeFilter = $state('');
+	let noEmailOnly = $state(false);
+
+	function hasNoEmail(company: Company): boolean {
+		if (company.emails.length > 0) return false;
+		return !(company.people ?? []).some((p) => p.email);
+	}
 	let sortField = $state<'created_at' | 'last_sent' | 'sent_count'>('created_at');
 	let sortDesc = $state(true);
 
@@ -84,15 +117,20 @@
 		if (typeFilter) {
 			result = result.filter((c) => c.company_type === typeFilter);
 		}
+		if (noEmailOnly) {
+			result = result.filter((c) => hasNoEmail(c));
+		}
 		result = [...result].sort((a, b) => {
 			if (sortField === 'sent_count') {
-				const ca = emailStats[a.id]?.total_sent ?? 0;
-				const cb = emailStats[b.id]?.total_sent ?? 0;
+				const ca = companySentCount(a);
+				const cb = companySentCount(b);
 				return sortDesc ? cb - ca : ca - cb;
 			}
 			if (sortField === 'last_sent') {
-				const da = emailStats[a.id]?.last_sent_at ? new Date(emailStats[a.id].last_sent_at!).getTime() : 0;
-				const db = emailStats[b.id]?.last_sent_at ? new Date(emailStats[b.id].last_sent_at!).getTime() : 0;
+				const la = companyLastSent(a);
+				const lb = companyLastSent(b);
+				const da = la ? new Date(la).getTime() : 0;
+				const db = lb ? new Date(lb).getTime() : 0;
 				return sortDesc ? db - da : da - db;
 			}
 			const da = new Date(a.created_at).getTime();
@@ -105,6 +143,42 @@
 	let selectedKeys = $derived(
 		new Set(selectedRecipients.map((r) => `${r.company_id}:${r.company_email}`))
 	);
+
+	function recipientKey(r: { company_id: string; company_email: string }): string {
+		return `${r.company_id}:${r.company_email}`;
+	}
+
+	function companyRecipients(company: Company): SelectedRecipient[] {
+		const recips: SelectedRecipient[] = [];
+		const seen = new Set<string>();
+		for (const e of company.emails) {
+			if (seen.has(e)) continue;
+			seen.add(e);
+			recips.push({
+				company_id: company.id,
+				company_name: company.name,
+				company_email: e,
+				company_type: company.company_type
+			});
+		}
+		for (const p of company.people ?? []) {
+			if (p.email && !seen.has(p.email)) {
+				seen.add(p.email);
+				recips.push({
+					company_id: p.id,
+					company_name: company.name,
+					company_email: p.email,
+					company_type: company.company_type
+				});
+			}
+		}
+		return recips;
+	}
+
+	let allFilteredSelected = $derived.by(() => {
+		const keys = filtered.flatMap((c) => companyRecipients(c).map(recipientKey));
+		return keys.length > 0 && keys.every((k) => selectedKeys.has(k));
+	});
 
 	function toggleEmail(company: Company, email: string) {
 		const key = `${company.id}:${email}`;
@@ -125,62 +199,63 @@
 		}
 	}
 
-	function toggleCompany(company: Company) {
-		const allSelected = company.emails.every((e) =>
-			selectedKeys.has(`${company.id}:${e}`)
-		);
-		if (allSelected) {
+	function togglePerson(company: Company, person: Person) {
+		const key = `${person.id}:${person.email}`;
+		if (selectedKeys.has(key)) {
 			selectedRecipients = selectedRecipients.filter(
-				(r) => r.company_id !== company.id
+				(r) => !(r.company_id === person.id && r.company_email === person.email)
 			);
 		} else {
-			const existing = selectedRecipients.filter(
-				(r) => r.company_id !== company.id
-			);
-			const newEntries = company.emails.map((e) => ({
-				company_id: company.id,
-				company_name: company.name,
-				company_email: e,
-				company_type: company.company_type
-			}));
-			selectedRecipients = [...existing, ...newEntries];
+			selectedRecipients = [
+				...selectedRecipients,
+				{
+					company_id: person.id,
+					company_name: company.name,
+					company_email: person.email,
+					company_type: company.company_type
+				}
+			];
+		}
+	}
+
+	function toggleCompany(company: Company) {
+		const recips = companyRecipients(company);
+		if (recips.length === 0) return;
+		const keys = recips.map(recipientKey);
+		const allSelected = keys.every((k) => selectedKeys.has(k));
+		if (allSelected) {
+			const keySet = new Set(keys);
+			selectedRecipients = selectedRecipients.filter((r) => !keySet.has(recipientKey(r)));
+		} else {
+			const existingKeys = new Set(selectedRecipients.map(recipientKey));
+			const toAdd = recips.filter((r) => !existingKeys.has(recipientKey(r)));
+			selectedRecipients = [...selectedRecipients, ...toAdd];
 		}
 	}
 
 	function toggleAll() {
-		const allFilteredSelected = filtered.every((c) =>
-			c.emails.length > 0 && c.emails.every((e) => selectedKeys.has(`${c.id}:${e}`))
-		);
-		if (allFilteredSelected) {
-			const filteredIds = new Set(filtered.map((c) => c.id));
-			selectedRecipients = selectedRecipients.filter(
-				(r) => !filteredIds.has(r.company_id)
-			);
+		const allRecips = filtered.flatMap(companyRecipients);
+		if (allRecips.length === 0) return;
+		const keys = allRecips.map(recipientKey);
+		const allSelected = keys.every((k) => selectedKeys.has(k));
+		if (allSelected) {
+			const keySet = new Set(keys);
+			selectedRecipients = selectedRecipients.filter((r) => !keySet.has(recipientKey(r)));
 		} else {
-			const filteredIds = new Set(filtered.map((c) => c.id));
-			const kept = selectedRecipients.filter((r) => !filteredIds.has(r.company_id));
-			const newEntries = filtered.flatMap((c) =>
-				c.emails.map((e) => ({
-					company_id: c.id,
-					company_name: c.name,
-					company_email: e,
-					company_type: c.company_type
-				}))
-			);
-			selectedRecipients = [...kept, ...newEntries];
+			const existingKeys = new Set(selectedRecipients.map(recipientKey));
+			const toAdd = allRecips.filter((r) => !existingKeys.has(recipientKey(r)));
+			selectedRecipients = [...selectedRecipients, ...toAdd];
 		}
 	}
 
 	function isCompanyFullySelected(company: Company) {
-		return company.emails.length > 0 && company.emails.every((e) =>
-			selectedKeys.has(`${company.id}:${e}`)
-		);
+		const keys = companyRecipients(company).map(recipientKey);
+		return keys.length > 0 && keys.every((k) => selectedKeys.has(k));
 	}
 
 	function isCompanyPartiallySelected(company: Company) {
-		return company.emails.some((e) =>
-			selectedKeys.has(`${company.id}:${e}`)
-		) && !isCompanyFullySelected(company);
+		const keys = companyRecipients(company).map(recipientKey);
+		return keys.some((k) => selectedKeys.has(k)) && !isCompanyFullySelected(company);
 	}
 </script>
 
@@ -198,6 +273,10 @@
 				<option value={ct.name}>{ct.label}</option>
 			{/each}
 		</select>
+		<label class="flex items-center gap-2 whitespace-nowrap">
+			<input type="checkbox" class="checkbox" bind:checked={noEmailOnly} />
+			<span class="text-sm">No email only</span>
+		</label>
 	</div>
 
 	<div class="text-sm text-surface-600">
@@ -211,7 +290,7 @@
 					<th>
 						<input
 							type="checkbox"
-							checked={filtered.length > 0 && filtered.every((c) => isCompanyFullySelected(c))}
+							checked={allFilteredSelected}
 							onchange={toggleAll}
 						/>
 					</th>
@@ -301,11 +380,11 @@
 							{/if}
 						</td>
 						<td class="hidden md:table-cell text-center">
-							{emailStats[company.id]?.total_sent ?? 0}
+							{companySentCount(company)}
 						</td>
-						<td class="hidden md:table-cell whitespace-nowrap text-sm font-medium {getHeatColor(emailStats[company.id]?.last_sent_at)}">
-							{#if emailStats[company.id]?.last_sent_at}
-								{new Date(emailStats[company.id].last_sent_at!).toLocaleDateString('fr-FR', {
+						<td class="hidden md:table-cell whitespace-nowrap text-sm font-medium {getHeatColor(companyLastSent(company))}">
+							{#if companyLastSent(company)}
+								{new Date(companyLastSent(company)!).toLocaleDateString('fr-FR', {
 									day: '2-digit',
 									month: '2-digit',
 									year: 'numeric'
@@ -354,6 +433,80 @@
 							</td>
 						{/if}
 					</tr>
+					{#each company.people ?? [] as person, pi (person.id)}
+						<tr
+							class="cursor-pointer hover:preset-tonal-primary text-sm"
+							onclick={() => togglePerson(company, person)}
+						>
+							<td></td>
+							<td>
+								<span class="text-surface-400 font-mono mr-1">
+									{pi === company.people.length - 1 ? '└─' : '├─'}
+								</span>
+								{person.name || '—'}
+							</td>
+							<td onclick={(e: MouseEvent) => e.stopPropagation()}>
+								{#if person.email}
+									<label class="flex items-center gap-2">
+										<input
+											type="checkbox"
+											checked={selectedKeys.has(`${person.id}:${person.email}`)}
+											onchange={() => togglePerson(company, person)}
+										/>
+										<span>{person.email}</span>
+									</label>
+								{:else}
+									<span class="text-surface-400">—</span>
+								{/if}
+							</td>
+							<td>
+								<span class="badge preset-filled-tertiary-500 text-xs">People</span>
+							</td>
+							<td class="hidden md:table-cell text-center">
+								{emailStats[person.id]?.total_sent ?? 0}
+							</td>
+							<td class="hidden md:table-cell whitespace-nowrap text-sm font-medium {getHeatColor(emailStats[person.id]?.last_sent_at)}">
+								{#if emailStats[person.id]?.last_sent_at}
+									{new Date(emailStats[person.id].last_sent_at!).toLocaleDateString('fr-FR', {
+										day: '2-digit',
+										month: '2-digit',
+										year: 'numeric'
+									})}
+								{:else}
+									<span class="text-surface-400">—</span>
+								{/if}
+							</td>
+							<td class="hidden lg:table-cell text-surface-400">—</td>
+							<td class="hidden lg:table-cell text-surface-400">—</td>
+							<td class="hidden lg:table-cell text-sm text-surface-600 whitespace-nowrap">
+								{#if person.created_at}
+									{new Date(person.created_at).toLocaleDateString('fr-FR', {
+										day: '2-digit',
+										month: '2-digit',
+										year: 'numeric',
+										hour: '2-digit',
+										minute: '2-digit'
+									})}
+								{:else}
+									<span class="text-surface-400">—</span>
+								{/if}
+							</td>
+							{#if twentyBaseUrl}
+								<td class="hidden lg:table-cell">
+									<a
+										href="{twentyBaseUrl}/object/person/{person.id}"
+										target="_blank"
+										rel="noopener"
+										class="text-surface-500 hover:text-surface-900 transition-colors"
+										title="Open in Twenty CRM"
+										onclick={(e: MouseEvent) => e.stopPropagation()}
+									>
+										<ExternalLinkIcon class="size-4" />
+									</a>
+								</td>
+							{/if}
+						</tr>
+					{/each}
 				{:else}
 					<tr>
 						<td colspan="10" class="text-center text-surface-500">No companies found.</td>

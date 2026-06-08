@@ -1,8 +1,10 @@
 <script lang="ts">
+	import { dev } from '$app/environment';
 	import CsvUploader from '$lib/twenty/CsvUploader.svelte';
 	import ColumnMapper from '$lib/twenty/ColumnMapper.svelte';
 	import ImportPreview from '$lib/twenty/ImportPreview.svelte';
 	import ImportResults from '$lib/twenty/ImportResults.svelte';
+	import { JsonView } from '@zerodevx/svelte-json-view';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -101,4 +103,11 @@
 			importResults = null;
 		}}
 	/>
+{/if}
+
+{#if dev}
+	<div class="mt-8">
+		<h2 class="h4 mb-2">Debug: state</h2>
+		<JsonView json={{ selectedCompanyTypeId, uploadId, csvHeaders, rowCount, delimiter, transformerId, previewRows, totalDeduplicated, importResults }} />
+	</div>
 {/if}

@@ -1,8 +1,10 @@
 <script lang="ts">
+	import { dev } from '$app/environment';
 	import CompanyTable from '$lib/emails/CompanyTable.svelte';
 	import type { SelectedRecipient } from '$lib/emails/CompanyTable.svelte';
 	import TemplateSelector from '$lib/emails/TemplateSelector.svelte';
 	import SendConfirmation from '$lib/emails/SendConfirmation.svelte';
+	import { JsonView } from '@zerodevx/svelte-json-view';
 	import type { PageData } from './$types';
 	import { sendEmails } from './send.remote.ts';
 
@@ -52,6 +54,13 @@
 		</div>
 	{/each}
 </div>
+
+{#if dev}
+	<details class="mb-6">
+		<summary class="h4 cursor-pointer">Debug: data</summary>
+		<JsonView json={data} />
+	</details>
+{/if}
 
 {#if currentStep === 0}
 	<!-- Step 0: Select companies and emails -->

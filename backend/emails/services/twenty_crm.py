@@ -10,9 +10,9 @@ def fetch_companies() -> list[dict]:
         "Authorization": f"Bearer {settings.TWENTY_API_KEY}",
     }
 
-    with httpx.Client() as client:
+    with httpx.Client(timeout=60) as client:
         while True:
-            params = {"limit": 50}
+            params = {"limit": 50, "depth": 1}
             if cursor:
                 params["starting_after"] = cursor
 
@@ -45,6 +45,15 @@ def fetch_companies() -> list[dict]:
                     "domain": (company.get("domainName") or {}).get("primaryLinkUrl", ""),
                     "city": (company.get("address") or {}).get("addressCity", ""),
                     "created_at": company.get("createdAt", ""),
+                    "people": [
+                        {
+                            "id": p.get("id", ""),
+                            "name": f"{(p.get('name') or {}).get('firstName', '')} {(p.get('name') or {}).get('lastName', '')}".strip(),
+                            "email": (p.get('emails') or {}).get('primaryEmail', ''),
+                            "created_at": p.get("createdAt", ""),
+                        }
+                        for p in (company.get("people") or [])
+                    ],
                 })
 
             if not page_info.get("hasNextPage", False):
