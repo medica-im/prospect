@@ -12,7 +12,8 @@ build/
 
 # Environment
 .env
-
+frontend/.env.production
+frontend/.env
 # Python
 __pycache__/
 *.py[cod]

@@ -76,9 +76,9 @@ services:
     restart: unless-stopped
 
   frontend:
-    build: ./frontend
+    image: ${FRONTEND_IMAGE}
     env_file:
-      - .env.frontend
+      - .env
     environment:
       NODE_OPTIONS: "--dns-result-order=ipv4first"
     ports:
