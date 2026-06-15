@@ -37,7 +37,7 @@ class EmailTemplateOut(Schema):
     id: int
     name: str
     subject_template: str
-    company_type: CompanyTypeOut
+    company_types: list[CompanyTypeOut]
 
 
 # --- Send ---

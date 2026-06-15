@@ -42,7 +42,7 @@ services:
 
   web:
     build: ./backend
-    command: gunicorn prospect.wsgi:application --bind 0.0.0.0:8000 --reload
+    command: python manage.py runserver 0.0.0.0:8000
     volumes:
       - ./backend:/app
     ports:

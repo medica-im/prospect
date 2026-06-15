@@ -62,7 +62,7 @@ def list_companies(request):
 
 @router.get("/templates", response=list[EmailTemplateOut])
 def list_templates(request):
-    return EmailTemplate.objects.select_related("company_type").all()
+    return EmailTemplate.objects.prefetch_related("company_types").all()
 
 
 # --- Send Emails ---

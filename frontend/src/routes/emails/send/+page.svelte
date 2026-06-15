@@ -23,7 +23,7 @@
 			selectedRecipients.map((r) => ({
 				company_name: r.company_name,
 				company_email: r.company_email,
-				company_type_id: selectedTemplate?.company_type?.id ?? 0,
+				company_type_id: data.companyTypes.find((ct) => ct.name === r.company_type)?.id ?? 0,
 				twenty_crm_id: r.company_id
 			}))
 		)

@@ -18,14 +18,14 @@ class EmailTemplate(models.Model):
     html_body = models.TextField(
         help_text="Pre-compiled MJML (HTML) with Jinja2 variables: {{ company_name }}, {{ email }}",
     )
-    company_type = models.ForeignKey(
-        CompanyType, on_delete=models.CASCADE, related_name="templates",
+    company_types = models.ManyToManyField(
+        CompanyType, related_name="templates",
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
-        return f"{self.name} ({self.company_type})"
+        return f"{self.name} ({', '.join(ct.label for ct in self.company_types.all())})"
 
 
 class SentEmail(models.Model):
