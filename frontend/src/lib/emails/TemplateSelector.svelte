@@ -9,7 +9,7 @@
 		id: number;
 		name: string;
 		subject_template: string;
-		company_type: CompanyType;
+		company_types: CompanyType[];
 	};
 
 	let {
@@ -23,7 +23,7 @@
 	} = $props();
 
 	let available = $derived(
-		templates.filter((t) => selectedCompanyTypes.has(t.company_type.name))
+		templates.filter((t) => t.company_types.some((ct) => selectedCompanyTypes.has(ct.name)))
 	);
 </script>
 
@@ -45,7 +45,7 @@
 					<div class="flex items-center justify-between mb-2">
 						<h3 class="font-bold">{template.name}</h3>
 						<span class="badge preset-filled-surface-500 text-xs">
-							{template.company_type.label}
+							{template.company_types.map((ct) => ct.label).join(', ')}
 						</span>
 					</div>
 					<p class="text-sm text-surface-600">

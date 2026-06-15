@@ -9,9 +9,14 @@ class CompanyTypeAdmin(admin.ModelAdmin):
 
 @admin.register(EmailTemplate)
 class EmailTemplateAdmin(admin.ModelAdmin):
-    list_display = ("name", "company_type", "updated_at")
-    list_filter = ("company_type",)
+    list_display = ("name", "get_company_types", "updated_at")
+    list_filter = ("company_types",)
+    filter_horizontal = ("company_types",)
     search_fields = ("name", "subject_template")
+
+    @admin.display(description="Company Types")
+    def get_company_types(self, obj):
+        return ", ".join(ct.label for ct in obj.company_types.all())
 
 
 @admin.register(SentEmail)
