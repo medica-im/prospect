@@ -13,6 +13,12 @@
 		>
 			Import Companies
 		</a>
+		<a
+			href={resolve('/twenty/web-prospects')}
+			class="btn {page.url.pathname.includes('/twenty/web-prospects') ? 'preset-filled-primary-500' : 'preset-outlined-surface-500'}"
+		>
+			Web Prospects
+		</a>
 	</nav>
 
 	{@render children()}
