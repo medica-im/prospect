@@ -5,7 +5,7 @@
 	let { children } = $props();
 </script>
 
-<div class="max-w-6xl mx-auto w-full">
+<div class="max-w-6xl xl:max-w-none mx-auto w-full">
 	<nav class="flex gap-4 border-b border-surface-500/30 mb-6 pb-2">
 		<a
 			href={resolve('/emails/send')}

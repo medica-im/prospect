@@ -148,6 +148,11 @@
 		return `${r.company_id}:${r.company_email}`;
 	}
 
+	// Only people with an email are shown/selectable as recipients.
+	function peopleWithEmail(company: Company): Person[] {
+		return (company.people ?? []).filter((p) => p.email);
+	}
+
 	function companyRecipients(company: Company): SelectedRecipient[] {
 		const recips: SelectedRecipient[] = [];
 		const seen = new Set<string>();
@@ -294,7 +299,7 @@
 							onchange={toggleAll}
 						/>
 					</th>
-					<th>Name</th>
+					<th class="min-w-64">Name</th>
 					<th>Email(s)</th>
 					<th>Type</th>
 					<th class="hidden md:table-cell">
@@ -346,7 +351,7 @@
 								onchange={() => toggleCompany(company)}
 							/>
 						</td>
-						<td>{company.name}</td>
+						<td class="min-w-64 font-medium">{company.name}</td>
 						<td onclick={(e: MouseEvent) => e.stopPropagation()}>
 							{#if company.emails.length === 0}
 								<span class="text-surface-400">—</span>
@@ -433,31 +438,28 @@
 							</td>
 						{/if}
 					</tr>
-					{#each company.people ?? [] as person, pi (person.id)}
+					{@const visiblePeople = peopleWithEmail(company)}
+					{#each visiblePeople as person, pi (person.id)}
 						<tr
 							class="cursor-pointer hover:preset-tonal-primary text-sm"
 							onclick={() => togglePerson(company, person)}
 						>
 							<td></td>
-							<td>
+							<td class="min-w-64">
 								<span class="text-surface-400 font-mono mr-1">
-									{pi === company.people.length - 1 ? '└─' : '├─'}
+									{pi === visiblePeople.length - 1 ? '└─' : '├─'}
 								</span>
 								{person.name || '—'}
 							</td>
 							<td onclick={(e: MouseEvent) => e.stopPropagation()}>
-								{#if person.email}
-									<label class="flex items-center gap-2">
-										<input
-											type="checkbox"
-											checked={selectedKeys.has(`${person.id}:${person.email}`)}
-											onchange={() => togglePerson(company, person)}
-										/>
-										<span>{person.email}</span>
-									</label>
-								{:else}
-									<span class="text-surface-400">—</span>
-								{/if}
+								<label class="flex items-center gap-2">
+									<input
+										type="checkbox"
+										checked={selectedKeys.has(`${person.id}:${person.email}`)}
+										onchange={() => togglePerson(company, person)}
+									/>
+									<span>{person.email}</span>
+								</label>
 							</td>
 							<td>
 								<span class="badge preset-filled-tertiary-500 text-xs">People</span>

@@ -44,6 +44,14 @@
 		box-sizing: border-box;
 	}
 
+	/* On large screens, let pages use the full viewport width. Individual
+	   pages/layouts still cap their own content (e.g. text pages) as needed. */
+	@media (min-width: 1280px) {
+		main {
+			max-width: none;
+		}
+	}
+
 	footer {
 		display: flex;
 		flex-direction: column;
