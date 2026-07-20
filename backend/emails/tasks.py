@@ -2,10 +2,12 @@ import logging
 
 from celery import shared_task
 
+from webprospects.french import UnknownArticleError
+
 from .models import EmailTemplate, SentEmail, CompanyType
 from .services.mailgun import send_email
 from .services.imap import save_to_sent_folder
-from .services.renderer import render_template
+from .services.renderer import build_context, render_template
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +24,23 @@ def send_prospect_email(
     """Send a single prospect email via Mailgun and save to IMAP Sent folder."""
     template = EmailTemplate.objects.get(id=template_id)
     company_type = CompanyType.objects.get(id=company_type_id)
-    context = {"company_name": company_name, "email": company_email}
+
+    # A missing definite article is a data problem, not a transient one — record
+    # the failure with a fix link and do NOT retry (retrying won't help).
+    try:
+        context = build_context(company_name, company_email)
+    except UnknownArticleError as exc:
+        SentEmail.objects.create(
+            template=template,
+            company_name=company_name,
+            company_email=company_email,
+            company_type=company_type,
+            twenty_crm_id=twenty_crm_id,
+            success=False,
+            error_message=str(exc),
+        )
+        logger.warning(f"Skipping email to {company_email}: {exc}")
+        return {"status": "failed", "error": str(exc)}
 
     subject = render_template(template.subject_template, context)
     html_body = render_template(template.html_body, context)

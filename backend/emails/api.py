@@ -18,7 +18,9 @@ from .schemas import (
 )
 from .services.twenty_crm import fetch_companies
 from .services.imap import fetch_email_from_sent
-from .services.renderer import render_template
+from webprospects.french import UnknownArticleError
+
+from .services.renderer import build_context, render_template
 from .tasks import send_prospect_email
 
 logger = logging.getLogger(__name__)
@@ -126,7 +128,16 @@ def preview_sent_email(request, sent_email_id: int):
     """Fetch actual sent email HTML from IMAP Sent folder."""
     sent_email = get_object_or_404(SentEmail, id=sent_email_id)
 
-    context = {"company_name": sent_email.company_name, "email": sent_email.company_email}
+    # Reconstruct the same context used at send time. For a historical preview we
+    # tolerate an unknown article (the email was already sent) and fall back.
+    try:
+        context = build_context(sent_email.company_name, sent_email.company_email)
+    except UnknownArticleError:
+        context = {
+            "company_name": sent_email.company_name,
+            "email": sent_email.company_email,
+            "definite_article_company_name": sent_email.company_name,
+        }
     subject = render_template(sent_email.template.subject_template, context)
 
     # Format date for IMAP search (DD-Mon-YYYY)

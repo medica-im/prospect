@@ -1,0 +1,7 @@
+import { env } from '$env/dynamic/private';
+import type { PageServerLoad } from './$types';
+
+export const load: PageServerLoad = async () => {
+	const twentyBaseUrl = env.TWENTY_BASE_URL || '';
+	return { twentyBaseUrl };
+};

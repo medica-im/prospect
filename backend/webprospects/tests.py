@@ -1,6 +1,43 @@
 from django.test import TestCase
 
+from webprospects.french import head_noun, resolve_article
 from webprospects.scrapers.apmsl import parse_apmsl
+
+
+class FrenchArticleTests(TestCase):
+    LOOKUP = {
+        "msp": "f", "cpts": "f", "sisa": "f", "urps": "f",
+        "association": "f", "maison": "f",
+        "pôle": "m", "centre": "m", "hôpital": "m",
+        "andromede": "unknown",
+    }
+
+    def _lookup(self, head):
+        return self.LOOKUP.get(head)
+
+    def test_head_noun_extraction(self):
+        self.assertEqual(head_noun("MSP DU MARAIS"), "msp")
+        self.assertEqual(head_noun("Pôle de santé du Marais"), "pôle")
+        self.assertEqual(head_noun("La Maison de santé"), "maison")
+        self.assertEqual(head_noun("l'entreprise Truc"), "entreprise")
+        self.assertEqual(head_noun("L'ESP Divatte"), "esp")
+
+    def test_articles(self):
+        cases = {
+            "MSP DU MARAIS": "la MSP DU MARAIS",
+            "CPTS Grand Large": "la CPTS Grand Large",
+            "Pôle de santé": "le Pôle de santé",
+            "Association des soins": "l'Association des soins",
+            "Hôpital Nord": "l'Hôpital Nord",  # masculine + mute h → l'
+        }
+        for name, expected in cases.items():
+            self.assertEqual(resolve_article(name, self._lookup)["with_article"], expected)
+
+    def test_unknown_is_flagged_without_article(self):
+        r = resolve_article("Andromede", self._lookup)
+        self.assertIsNone(r["article"])
+        self.assertTrue(r["needs_review"])
+        self.assertEqual(r["with_article"], "Andromede")
 
 SAMPLE = """
 <html><body>

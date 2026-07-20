@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { ExternalLinkIcon } from '@lucide/svelte';
+
 	export type Person = { first_name: string; last_name: string };
 	export type MspRecord = {
 		name: string;
@@ -19,21 +21,30 @@
 		record = $bindable(),
 		missingFields = [],
 		existingCount = 0,
+		missingEssentialCount = 0,
+		existingUrl = '',
 		index,
 		total,
 		busy = false,
 		onConfirm,
-		onSkip
+		onSkip,
+		onUpdate
 	}: {
 		record: MspRecord;
 		missingFields?: string[];
 		existingCount?: number;
+		missingEssentialCount?: number;
+		existingUrl?: string;
 		index: number;
 		total: number;
 		busy?: boolean;
 		onConfirm: () => void;
 		onSkip: () => void;
+		onUpdate: () => void;
 	} = $props();
+
+	let exists = $derived(existingCount >= 1);
+	let canUpdate = $derived(exists && missingEssentialCount > 0);
 
 	function isMissing(field: string): boolean {
 		return missingFields.includes(field);
@@ -115,7 +126,20 @@
 		</label>
 		<label class="label">
 			<span>Website (domain)</span>
-			<input class="input" bind:value={record.website} />
+			<div class="flex items-center gap-2">
+				<input class="input" bind:value={record.website} />
+				<a
+					class="btn-icon preset-tonal {record.website ? '' : 'opacity-40 pointer-events-none'}"
+					href={record.website || undefined}
+					target="_blank"
+					rel="noopener noreferrer"
+					title="Open website in a new tab"
+					aria-label="Open website in a new tab"
+					tabindex={record.website ? 0 : -1}
+				>
+					<ExternalLinkIcon class="size-4" />
+				</a>
+			</div>
 		</label>
 	</div>
 
@@ -149,12 +173,43 @@
 		{/each}
 	</div>
 
-	<footer class="flex gap-3 pt-2">
-		<button class="btn preset-filled-primary-500" disabled={busy} onclick={onConfirm}>
-			{busy ? 'Creating…' : 'Confirm & Create'}
-		</button>
+	{#if exists && !canUpdate}
+		<p class="text-sm text-success-600">
+			Already in Twenty with all essential data — nothing to update.
+		</p>
+	{/if}
+
+	<footer class="flex flex-wrap gap-3 pt-2">
+		{#if exists}
+			{#if canUpdate}
+				<button
+					class="btn preset-filled-primary-500"
+					disabled={busy}
+					onclick={onUpdate}
+					title="Add the {missingEssentialCount} missing essential field(s) to the existing record"
+				>
+					Update ({missingEssentialCount} missing)
+				</button>
+			{/if}
+		{:else}
+			<button class="btn preset-filled-primary-500" disabled={busy} onclick={onConfirm}>
+				{busy ? 'Creating…' : 'Confirm & Create'}
+			</button>
+		{/if}
 		<button class="btn preset-outlined-surface-500" disabled={busy} onclick={onSkip}>
 			Skip
 		</button>
+		{#if exists && existingUrl}
+			<a
+				class="btn preset-outlined-warning-500"
+				href={existingUrl}
+				target="_blank"
+				rel="noopener noreferrer"
+				title="Open existing company in Twenty CRM"
+			>
+				<span class="truncate max-w-48">{record.name || 'Open in Twenty'}</span>
+				<ExternalLinkIcon class="size-4 shrink-0" />
+			</a>
+		{/if}
 	</footer>
 </div>

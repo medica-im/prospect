@@ -164,6 +164,9 @@ MAILGUN_FROM_EMAIL = env('MAILGUN_FROM_EMAIL', default='')
 TWENTY_API_URL = env('TWENTY_API_URL', default='')
 TWENTY_API_KEY = env('TWENTY_API_KEY', default='')
 
+# Base URL of this app (used to build absolute admin links in error messages)
+ADMIN_BASE_URL = env('ADMIN_BASE_URL', default='http://prospect.localhost')
+
 # Session
 CSRF_TRUSTED_ORIGINS = env.list('CSRF_TRUSTED_ORIGINS', default=['http://localhost:5173'])
 

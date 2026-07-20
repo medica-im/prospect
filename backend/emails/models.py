@@ -13,10 +13,17 @@ class EmailTemplate(models.Model):
     name = models.CharField(max_length=255, unique=True)
     subject_template = models.CharField(
         max_length=500,
-        help_text="Jinja2 template for subject. Variables: {{ company_name }}, {{ email }}",
+        help_text=(
+            "Jinja2 template for subject. Variables: {{ company_name }}, {{ email }}, "
+            "{{ definite_article_company_name }} (name with French article, e.g. "
+            "'la MSP du Marais')"
+        ),
     )
     html_body = models.TextField(
-        help_text="Pre-compiled MJML (HTML) with Jinja2 variables: {{ company_name }}, {{ email }}",
+        help_text=(
+            "Pre-compiled MJML (HTML) with Jinja2 variables: {{ company_name }}, "
+            "{{ email }}, {{ definite_article_company_name }}"
+        ),
     )
     company_types = models.ManyToManyField(
         CompanyType, related_name="templates",

@@ -1,6 +1,14 @@
 from django.contrib import admin
 
-from .models import WebProspectRecord, WebProspectRun
+from .models import HeadNounGender, WebProspectRecord, WebProspectRun
+
+
+@admin.register(HeadNounGender)
+class HeadNounGenderAdmin(admin.ModelAdmin):
+    list_display = ("head_noun", "gender", "note")
+    list_filter = ("gender",)
+    list_editable = ("gender",)
+    search_fields = ("head_noun", "note")
 
 
 class WebProspectRecordInline(admin.TabularInline):

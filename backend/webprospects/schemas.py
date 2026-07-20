@@ -29,12 +29,22 @@ class ScrapeRequest(Schema):
     scraper: str | None = None
 
 
+class DiffEntry(Schema):
+    field: str        # email | phone | domain | address
+    label: str
+    value: str
+    target: str       # company | contact_person
+
+
 class ScrapedRecord(Schema):
     """A scraped record plus its Twenty existence check."""
     record: MspRecord
     missing_fields: list[str] = []
     existing_count: int = 0
     existing_ids: list[str] = []
+    # For existing records: which essential fields are absent in Twenty and
+    # would be filled by an update. Empty when the record is new or complete.
+    missing_essential: list[DiffEntry] = []
 
 
 class ScrapeResponse(Schema):
@@ -62,6 +72,25 @@ class CreateOneResponse(Schema):
     twenty_company_id: str = ""
     missing_fields: list[str] = []
     error: str = ""
+    duplicate_company_id: str = ""
+    duplicate_company_name: str = ""
+
+
+class UpdateExistingRequest(Schema):
+    run_id: int | None = None
+    source_url: str
+    company_id: str
+    record: MspRecord
+
+
+class UpdateExistingResponse(Schema):
+    run_id: int
+    status: str  # updated | failed
+    twenty_company_id: str = ""
+    updated_fields: list[str] = []
+    error: str = ""
+    duplicate_company_id: str = ""
+    duplicate_company_name: str = ""
 
 
 class RunRequest(Schema):
@@ -79,6 +108,8 @@ class RecordOut(Schema):
     twenty_company_id: str
     missing_fields: list[str]
     error: str
+    duplicate_company_id: str = ""
+    duplicate_company_name: str = ""
 
 
 class RunOut(Schema):
@@ -88,6 +119,7 @@ class RunOut(Schema):
     ask_confirmation: bool
     total: int
     created_count: int
+    updated_count: int
     skipped_count: int
     already_present_count: int
     failed_count: int

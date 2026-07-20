@@ -14,10 +14,16 @@ from .schemas import (
     ScrapedRecord,
     ScrapeRequest,
     ScrapeResponse,
+    UpdateExistingRequest,
+    UpdateExistingResponse,
 )
 from .scrapers import SCRAPERS, suggest_scraper
 from .services import (
     MSP_COMPANY_TYPE_VALUE,
+    apply_update,
+    compute_missing,
+    fetch_company,
+    fetch_company_people,
     find_companies_by_name,
     process_record,
 )
@@ -69,11 +75,26 @@ def scrape(request, payload: ScrapeRequest):
             logger.warning("Existence check failed for %s: %s", rec.get("name"), e)
         if len(existing) > 1:
             ambiguous = True
+
+        # For an existing record, automatically compute which essential fields
+        # are absent in Twenty so the card can offer Update-or-Skip directly.
+        missing_essential = []
+        if existing:
+            try:
+                people = fetch_company_people(existing[0]["id"])
+                missing_essential = [
+                    {k: v for k, v in m.items() if not k.startswith("_")}
+                    for m in compute_missing(existing[0], people, rec)
+                ]
+            except httpx.HTTPError as e:
+                logger.warning("Diff check failed for %s: %s", rec.get("name"), e)
+
         records.append(ScrapedRecord(
             record=rec,
             missing_fields=_missing_fields(rec),
             existing_count=len(existing),
             existing_ids=[c.get("id", "") for c in existing],
+            missing_essential=missing_essential,
         ))
 
     return 200, ScrapeResponse(
@@ -109,6 +130,8 @@ def create_one(request, payload: CreateOneRequest):
     status = None
     twenty_id = ""
     error = ""
+    dup_id = ""
+    dup_name = ""
     missing = _missing_fields(record)
 
     existing = []
@@ -130,16 +153,71 @@ def create_one(request, payload: CreateOneRequest):
         twenty_id = result["twenty_company_id"]
         missing = result["missing_fields"]
         error = result["error"]
+        owner = result.get("duplicate_owner")
+        if owner:
+            dup_id, dup_name = owner["company_id"], owner["company_name"]
 
     WebProspectRecord.objects.create(
         run=run, name=record.get("name", ""), status=status,
-        twenty_company_id=twenty_id, missing_fields=missing, error=error, data=record,
+        twenty_company_id=twenty_id, missing_fields=missing, error=error,
+        duplicate_company_id=dup_id, duplicate_company_name=dup_name, data=record,
     )
     _recount(run)
 
     return CreateOneResponse(
         run_id=run.id, status=status, twenty_company_id=twenty_id,
         missing_fields=missing, error=error,
+        duplicate_company_id=dup_id, duplicate_company_name=dup_name,
+    )
+
+
+@router.post("/update-existing", response=UpdateExistingResponse)
+def update_existing(request, payload: UpdateExistingRequest):
+    """Fill missing essential data on an existing Twenty MSP (no duplicate)."""
+    run = _get_or_create_run(
+        payload.run_id, payload.source_url,
+        suggest_scraper(payload.source_url) or "apmsl",
+        ask_confirmation=True,
+    )
+    record = payload.record.dict()
+
+    status = "updated"
+    error = ""
+    dup_id = ""
+    dup_name = ""
+    updated_fields: list[str] = []
+    try:
+        company = fetch_company(payload.company_id)
+        people = fetch_company_people(payload.company_id)
+        diff = compute_missing(company, people, record)
+        result = apply_update(company, diff, record)
+        updated_fields = result["updated_fields"]
+        if result.get("skipped"):
+            error = (
+                f"{'/'.join(result['skipped'])} already exists elsewhere in Twenty (skipped)"
+            )
+            owner = result.get("duplicate_owner")
+            if owner:
+                dup_id, dup_name = owner["company_id"], owner["company_name"]
+    except httpx.HTTPStatusError as e:
+        status = "failed"
+        error = e.response.text[:500]
+    except Exception as e:  # noqa: BLE001
+        status = "failed"
+        error = str(e)[:500]
+
+    WebProspectRecord.objects.create(
+        run=run, name=record.get("name", ""), status=status,
+        twenty_company_id=payload.company_id, missing_fields=updated_fields,
+        error=error, duplicate_company_id=dup_id, duplicate_company_name=dup_name,
+        data=record,
+    )
+    _recount(run)
+
+    return UpdateExistingResponse(
+        run_id=run.id, status=status, twenty_company_id=payload.company_id,
+        updated_fields=updated_fields, error=error,
+        duplicate_company_id=dup_id, duplicate_company_name=dup_name,
     )
 
 
@@ -176,6 +254,17 @@ def run_status(request, task_id: str):
     return {"state": result.state}
 
 
+@router.post("/cancel-run")
+def cancel_run(request, task_id: str):
+    """Ask a running automatic run to stop gracefully after the current record."""
+    from .tasks import request_cancel, run_web_prospects
+
+    request_cancel(task_id)
+    # Best-effort hard revoke as a fallback if the task is stuck between checks.
+    run_web_prospects.AsyncResult(task_id).revoke()
+    return {"cancelled": True, "task_id": task_id}
+
+
 @router.get("/runs", response=list[RunOut])
 def list_runs(request):
     return WebProspectRun.objects.all()
@@ -190,6 +279,8 @@ def run_detail(request, run_id: int):
             "id": r.id, "name": r.name, "status": r.status,
             "twenty_company_id": r.twenty_company_id,
             "missing_fields": r.missing_fields, "error": r.error,
+            "duplicate_company_id": r.duplicate_company_id,
+            "duplicate_company_name": r.duplicate_company_name,
         }
         for r in run.records.all()
     ]
@@ -200,6 +291,7 @@ def _recount(run: WebProspectRun):
     qs = run.records.all()
     run.total = qs.count()
     run.created_count = qs.filter(status="created").count()
+    run.updated_count = qs.filter(status="updated").count()
     run.skipped_count = qs.filter(status="skipped").count()
     run.already_present_count = qs.filter(status="already_present").count()
     run.failed_count = qs.filter(status="failed").count()
