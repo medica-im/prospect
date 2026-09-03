@@ -164,13 +164,19 @@ case "$COMPONENT" in
 esac
 
 if [[ "$PUSH" -eq 1 ]]; then
-	echo "Set these in .env for docker-compose-production.yml:"
-	case "$COMPONENT" in
-		frontend) echo "    FRONTEND_IMAGE=$FRONTEND_IMAGE_REPO:$GIT_SHA" ;;
-		backend)  echo "    BACKEND_IMAGE=$BACKEND_IMAGE_REPO:$GIT_SHA" ;;
-		all)
-			echo "    FRONTEND_IMAGE=$FRONTEND_IMAGE_REPO:$GIT_SHA"
-			echo "    BACKEND_IMAGE=$BACKEND_IMAGE_REPO:$GIT_SHA"
-			;;
-	esac
+	# No .env editing: deploy.sh reads the tag from the commit being deployed
+	# and passes the resolved digests to compose as environment variables, so
+	# the server's .env is never touched by a release.
+	echo "Deploy with:"
+	if [[ "$GIT_SHA" == *-dirty ]]; then
+		echo "    ./scripts/deploy.sh --tag $GIT_SHA"
+		echo
+		echo "(a clean tree lets you just run ./scripts/deploy.sh — it takes the"
+		echo " tag from HEAD, and refuses to deploy a dirty one.)"
+	else
+		echo "    ./scripts/deploy.sh"
+		echo
+		echo "It deploys $GIT_SHA, the commit these images were built from."
+		echo "Roll back later with: ./scripts/deploy.sh --tag <previous-sha>"
+	fi
 fi
