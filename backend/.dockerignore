@@ -1,0 +1,23 @@
+.git
+.gitignore
+Dockerfile*
+docker-compose*
+.env*
+
+# Runtime output, not build input. Written by collectstatic inside the running
+# container (root-owned on the host), and bind-mounted in dev — copying it into
+# the image ships whatever the last dev run happened to leave behind.
+staticfiles
+
+# Python caches: stale bytecode from the host's own interpreter version.
+__pycache__
+**/__pycache__
+*.py[cod]
+.pytest_cache
+.venv
+venv
+
+# Test and tooling files the runtime never reads; excluded so editing them
+# does not invalidate the COPY layer and force a rebuild.
+.claude
+CLAUDE.md

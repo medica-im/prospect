@@ -37,9 +37,26 @@ services:
       retries: 5
     restart: unless-stopped
 
-  migrate:
-    build: ./backend
-    command: python manage.py migrate --noinput
+  # One-shot release tasks, run to completion before anything serves traffic.
+  #
+  # Both jobs belong here rather than in web's startup command. web and celery
+  # share this image, so a startup command either runs migrations twice
+  # concurrently (Postgres can deadlock on concurrent DDL) or skips them on
+  # celery, which then starts against a schema it does not match. Here they run
+  # exactly once, and a non-zero exit stops web and celery from starting at all
+  # via service_completed_successfully — the old containers keep serving and
+  # the deploy fails loudly instead of crash-looping under restart policy.
+  #
+  # collectstatic also does not belong on the boot path: it reran on every
+  # restart, delaying each one, and its duration counted against web's
+  # healthcheck start_period — a slow collect could fail a deploy that was fine.
+  release:
+    image: ${BACKEND_IMAGE}
+    command: >
+      bash -c "python manage.py migrate --noinput &&
+               python manage.py collectstatic --noinput"
+    volumes:
+      - ${DJANGO_STATIC_ROOT_HOST:-./staticfiles}:${DJANGO_STATIC_ROOT:-/app/staticfiles}
     env_file:
       - .env
     environment:
@@ -50,10 +67,12 @@ services:
     restart: "no"
 
   web:
-    build: ./backend
-    command: bash -c "python manage.py collectstatic --noinput && gunicorn prospect.wsgi:application --bind 0.0.0.0:8000 --workers 3"
+    image: ${BACKEND_IMAGE}
+    command: gunicorn prospect.wsgi:application --bind 0.0.0.0:8000 --workers 3
+    # Read-only: the release service writes these, web only serves them (and in
+    # the usual setup nginx serves them directly and web never reads them).
     volumes:
-      - ./staticfiles:/app/staticfiles
+      - ${DJANGO_STATIC_ROOT_HOST:-./staticfiles}:${DJANGO_STATIC_ROOT:-/app/staticfiles}:ro
     env_file:
       - .env
     environment:
@@ -61,8 +80,26 @@ services:
       CELERY_BROKER_URL: "amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672//"
     ports:
       - "127.0.0.1:${DJANGO_PORT:-8000}:8000"
+    # Hits /healthz, which checks the database — "gunicorn is listening" is not
+    # the same as "the app works". Uses python, not curl: the slim image has
+    # neither curl nor wget, and the runtime interpreter is guaranteed present.
+    # start_period covers gunicorn boot, during which failures do not count
+    # against retries. collectstatic and migrations are no longer on this path
+    # — the release service finishes them before this container starts.
+    #
+    # X-Forwarded-Proto: https is required, not cosmetic. In production
+    # SECURE_SSL_REDIRECT redirects plain HTTP, so without this header the
+    # check follows a 301 to https:// on a port speaking plain HTTP and hangs
+    # until the TLS handshake times out — every deploy would fail --wait. This
+    # is the same header nginx sends, and SECURE_PROXY_SSL_HEADER trusts it.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; r=urllib.request.urlopen(urllib.request.Request('http://127.0.0.1:8000/healthz', headers={'X-Forwarded-Proto':'https'}), timeout=5); sys.exit(0 if r.status == 200 else 1)"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
     depends_on:
-      migrate:
+      release:
         condition: service_completed_successfully
       db:
         condition: service_healthy
@@ -73,15 +110,24 @@ services:
     restart: unless-stopped
 
   celery:
-    build: ./backend
+    image: ${BACKEND_IMAGE}
     command: celery -A prospect worker --loglevel=warning --concurrency=2
+    # A worker that booted but cannot reach the broker responds to nothing;
+    # `celery inspect ping` asks this worker to answer over that broker, so it
+    # fails when the link is broken. -d names this worker specifically.
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A prospect inspect ping -d celery@$$(hostname) >/dev/null 2>&1"]
+      interval: 30s
+      timeout: 15s
+      retries: 3
+      start_period: 60s
     env_file:
       - .env
     environment:
       DJANGO_DEBUG: "False"
       CELERY_BROKER_URL: "amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672//"
     depends_on:
-      migrate:
+      release:
         condition: service_completed_successfully
       db:
         condition: service_healthy
@@ -93,6 +139,15 @@ services:
 
   frontend:
     image: ${FRONTEND_IMAGE}
+    # node, not curl: the slim runtime image has no http client but always has
+    # node. <500 counts as healthy — the SvelteKit app answering at all is the
+    # signal; a 404 on / would still mean the server is up and routing.
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get({host:'127.0.0.1',port:3000,path:'/'},r=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1))"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
     env_file:
       - .env
     environment:

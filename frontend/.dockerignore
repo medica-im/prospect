@@ -1,4 +1,29 @@
+.git
 node_modules
+.eslint*
+.prettier*
+.git*
+.vscode
+README.md
+Dockerfile*
+docker-compose*
 .svelte-kit
 build
 .env*
+
+# Not part of the image, and excluded so editing them does not rebuild it.
+#
+# The Dockerfile does `COPY . .` into the base stage, so every file in the
+# context is an input to that layer: a one-line change to a test or config file
+# invalidates it and forces a full pnpm install and build, for files the runtime
+# stage never copies — it takes only package.json, pnpm-lock.yaml and build/.
+#
+# Kept out of the context rather than reordered in the Dockerfile because they
+# are not build inputs at all. The build reads none of them.
+tests
+docs
+playwright.config.ts
+drizzle.config.ts
+vitest-setup*
+.storybook
+debug-storybook.log
