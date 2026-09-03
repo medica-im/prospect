@@ -7,7 +7,8 @@ from webprospects.french import UnknownArticleError
 from .models import EmailTemplate, SentEmail, CompanyType
 from .services.mailgun import send_email
 from .services.imap import save_to_sent_folder
-from .services.renderer import build_context, render_template
+from .services.renderer import build_context, ensure_unsubscribe_link, render_template
+from .services.unsubscribe import build_unsubscribe_url, is_unsubscribed
 
 logger = logging.getLogger(__name__)
 
@@ -25,26 +26,14 @@ def send_prospect_email(
     template = EmailTemplate.objects.get(id=template_id)
     company_type = CompanyType.objects.get(id=company_type_id)
 
-    # A missing definite article is a data problem, not a transient one — record
-    # the failure with a fix link and do NOT retry (retrying won't help).
-    try:
-        context = build_context(company_name, company_email)
-    except UnknownArticleError as exc:
-        SentEmail.objects.create(
-            template=template,
-            company_name=company_name,
-            company_email=company_email,
-            company_type=company_type,
-            twenty_crm_id=twenty_crm_id,
-            success=False,
-            error_message=str(exc),
-        )
-        logger.warning(f"Skipping email to {company_email}: {exc}")
-        return {"status": "failed", "error": str(exc)}
+    # The real opt-out gate. The API filters recipients too, but that check is a
+    # UX nicety: a task queued before an unsubscribe can still run after it.
+    if is_unsubscribed(company_email):
+        logger.info(f"Skipping email to {company_email}: recipient unsubscribed")
+        return {"status": "skipped", "reason": "unsubscribed"}
 
-    subject = render_template(template.subject_template, context)
-    html_body = render_template(template.html_body, context)
-
+    # Created before rendering so the unsubscribe token can reference this exact
+    # send — that is how we know which email triggered an opt-out.
     sent_email = SentEmail.objects.create(
         template=template,
         company_name=company_name,
@@ -54,8 +43,30 @@ def send_prospect_email(
         success=False,
     )
 
+    unsubscribe_url = build_unsubscribe_url(company_email, sent_email.id)
+
+    # A missing definite article is a data problem, not a transient one — record
+    # the failure with a fix link and do NOT retry (retrying won't help).
     try:
-        result = send_email(to=company_email, subject=subject, html_body=html_body)
+        context = build_context(company_name, company_email, unsubscribe_url)
+    except UnknownArticleError as exc:
+        sent_email.error_message = str(exc)
+        sent_email.save(update_fields=["error_message"])
+        logger.warning(f"Skipping email to {company_email}: {exc}")
+        return {"status": "failed", "error": str(exc)}
+
+    subject = render_template(template.subject_template, context)
+    html_body = ensure_unsubscribe_link(
+        render_template(template.html_body, context), unsubscribe_url
+    )
+
+    try:
+        result = send_email(
+            to=company_email,
+            subject=subject,
+            html_body=html_body,
+            unsubscribe_url=unsubscribe_url,
+        )
         mailgun_message_id = result.get("id", "")
 
         sent_email.success = True

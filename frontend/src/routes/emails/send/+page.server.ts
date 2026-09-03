@@ -8,19 +8,23 @@ export const load: PageServerLoad = async ({ cookies }) => {
 	const sessionId = cookies.get('sessionid');
 	if (sessionId) headers['Cookie'] = `sessionid=${sessionId}`;
 
-	const [companiesRes, templatesRes, typesRes, statsRes] = await Promise.all([
+	const [companiesRes, templatesRes, typesRes, statsRes, unsubRes] = await Promise.all([
 		fetch(`${API}/api/companies`, { headers }),
 		fetch(`${API}/api/templates`, { headers }),
 		fetch(`${API}/api/company-types`, { headers }),
-		fetch(`${API}/api/email-stats`, { headers })
+		fetch(`${API}/api/email-stats`, { headers }),
+		fetch(`${API}/api/unsubscribes`, { headers })
 	]);
 
 	const companies = companiesRes.ok ? await companiesRes.json() : [];
 	const templates = templatesRes.ok ? await templatesRes.json() : [];
 	const companyTypes = typesRes.ok ? await typesRes.json() : [];
 	const emailStats = statsRes.ok ? await statsRes.json() : {};
+	const unsubscribed: string[] = unsubRes.ok
+		? (await unsubRes.json()).map((u: { email: string }) => u.email)
+		: [];
 
 	const twentyBaseUrl = env.TWENTY_BASE_URL || '';
 
-	return { companies, templates, companyTypes, twentyBaseUrl, emailStats };
+	return { companies, templates, companyTypes, twentyBaseUrl, emailStats, unsubscribed };
 };

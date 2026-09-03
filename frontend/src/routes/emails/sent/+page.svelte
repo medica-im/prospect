@@ -7,6 +7,10 @@
 	let search = $state('');
 	let statusFilter = $state('');
 
+	let unsubscribedSet = $derived(
+		new Set((data.unsubscribed ?? []).map((e: string) => e.trim().toLowerCase()))
+	);
+
 	let filtered = $derived.by(() => {
 		let result = data.sentEmails;
 		if (search) {
@@ -59,7 +63,10 @@
 
 <div class="space-y-2">
 	{#each filtered as sentEmail (sentEmail.id)}
-		<SentEmailCard {sentEmail} />
+		<SentEmailCard
+			{sentEmail}
+			unsubscribed={unsubscribedSet.has(sentEmail.company_email.trim().toLowerCase())}
+		/>
 	{:else}
 		<div class="card p-6 text-center text-surface-500">
 			No sent emails found.

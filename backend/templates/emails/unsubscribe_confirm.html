@@ -1,0 +1,29 @@
+{% extends "emails/unsubscribe_base.html" %}
+
+{% block title %}Confirmer le désabonnement{% endblock %}
+
+{% block content %}
+  {% if already_unsubscribed %}
+    <h1>Vous êtes déjà désabonné·e</h1>
+    <p>
+      L'adresse <span class="email">{{ email }}</span> ne reçoit plus nos emails.
+    </p>
+    <p class="muted">
+      Vous n'avez rien d'autre à faire. Si vous recevez malgré tout un message de
+      notre part, répondez-y simplement&nbsp;: nous corrigerons.
+    </p>
+  {% else %}
+    <h1>Souhaitez-vous vous désabonner&nbsp;?</h1>
+    <p>
+      Vous ne recevrez plus aucun email de notre part à l'adresse
+      <span class="email">{{ email }}</span>.
+    </p>
+    <form method="post">
+      <button type="submit">Se désabonner</button>
+    </form>
+    <p class="muted">
+      Cette action est définitive. Vous pouvez aussi simplement fermer cette page
+      pour continuer à recevoir nos messages.
+    </p>
+  {% endif %}
+{% endblock %}

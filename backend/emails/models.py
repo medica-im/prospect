@@ -22,7 +22,10 @@ class EmailTemplate(models.Model):
     html_body = models.TextField(
         help_text=(
             "Pre-compiled MJML (HTML) with Jinja2 variables: {{ company_name }}, "
-            "{{ email }}, {{ definite_article_company_name }}"
+            "{{ email }}, {{ definite_article_company_name }}, {{ unsubscribe_url }}. "
+            "Every template MUST include an unsubscribe link, e.g. "
+            '<a href="{{ unsubscribe_url }}">Se désabonner</a> — if it is missing, a '
+            "plain footer is appended automatically at send time."
         ),
     )
     company_types = models.ManyToManyField(
@@ -55,3 +58,44 @@ class SentEmail(models.Model):
 
     def __str__(self):
         return f"{self.company_name} - {self.sent_at:%Y-%m-%d %H:%M}"
+
+
+class Unsubscribe(models.Model):
+    """An email address that opted out. Sending to it is refused forever.
+
+    The address itself is never deleted or hidden — it stays visible in the
+    prospect list (it is public data on the CRM side), it is only marked as
+    unsubscribed and made unselectable.
+    """
+
+    SOURCE_LINK = "link"
+    SOURCE_LIST_HEADER = "list_header"
+    SOURCE_MANUAL = "manual"
+    SOURCE_CHOICES = [
+        (SOURCE_LINK, "Unsubscribe link"),
+        (SOURCE_LIST_HEADER, "List-Unsubscribe one-click"),
+        (SOURCE_MANUAL, "Manual (admin)"),
+    ]
+
+    email = models.EmailField(unique=True, db_index=True)
+    unsubscribed_at = models.DateTimeField(auto_now_add=True)
+    sent_email = models.ForeignKey(
+        SentEmail,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="unsubscribes",
+        help_text="The email whose link triggered this unsubscribe",
+    )
+    company_name = models.CharField(max_length=255, blank=True, default="")
+    twenty_crm_id = models.CharField(max_length=255, blank=True, default="")
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    user_agent = models.CharField(max_length=500, blank=True, default="")
+    source = models.CharField(max_length=20, choices=SOURCE_CHOICES, default=SOURCE_LINK)
+    note = models.TextField(blank=True, default="")
+
+    class Meta:
+        ordering = ["-unsubscribed_at"]
+
+    def __str__(self):
+        return f"{self.email} ({self.unsubscribed_at:%Y-%m-%d})"

@@ -79,6 +79,7 @@
 		companyTypes={data.companyTypes}
 		twentyBaseUrl={data.twentyBaseUrl}
 		emailStats={data.emailStats}
+		unsubscribed={data.unsubscribed}
 		bind:selectedRecipients
 	/>
 
@@ -132,5 +133,7 @@
 	<SendConfirmation
 		success={formResult?.success ?? false}
 		message={formResult?.message ?? 'Unknown error'}
+		skipped={formResult?.skipped ?? 0}
+		skippedEmails={formResult?.skippedEmails ?? []}
 	/>
 {/if}

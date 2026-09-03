@@ -1,0 +1,19 @@
+{% extends "emails/unsubscribe_base.html" %}
+
+{% block title %}Lien invalide{% endblock %}
+
+{% block content %}
+  <h1>Ce lien de désabonnement n'est pas valide</h1>
+  <p>
+    Le lien semble incomplet ou altéré — cela arrive lorsqu'il est coupé par un
+    logiciel de messagerie lors d'un copier-coller.
+  </p>
+  <p>
+    Essayez de cliquer directement sur le lien depuis l'email d'origine. Sinon,
+    répondez simplement à ce message en demandant votre désabonnement&nbsp;:
+    nous nous en chargerons.
+  </p>
+  <p class="muted">
+    Toutes nos excuses pour le désagrément.
+  </p>
+{% endblock %}

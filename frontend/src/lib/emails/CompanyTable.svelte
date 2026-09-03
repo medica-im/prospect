@@ -42,14 +42,24 @@
 		companyTypes,
 		twentyBaseUrl = '',
 		emailStats = {},
+		unsubscribed = [],
 		selectedRecipients = $bindable([])
 	}: {
 		companies: Company[];
 		companyTypes: CompanyType[];
 		twentyBaseUrl?: string;
 		emailStats?: Record<string, EmailStats>;
+		unsubscribed?: string[];
 		selectedRecipients: SelectedRecipient[];
 	} = $props();
+
+	// Opted-out addresses stay fully visible — they are public data — but can
+	// never be selected. The backend refuses them regardless.
+	let unsubscribedSet = $derived(new Set(unsubscribed.map((e) => e.trim().toLowerCase())));
+
+	function isUnsubscribed(email: string): boolean {
+		return unsubscribedSet.has((email ?? '').trim().toLowerCase());
+	}
 
 	function getHeatColor(dateStr: string | null | undefined): string {
 		if (!dateStr) return 'text-surface-400';
@@ -144,6 +154,23 @@
 		new Set(selectedRecipients.map((r) => `${r.company_id}:${r.company_email}`))
 	);
 
+	// How many of the currently visible addresses are opted out.
+	let unsubscribedShown = $derived.by(() => {
+		if (unsubscribedSet.size === 0) return 0;
+		const seen = new Set<string>();
+		for (const company of filtered) {
+			for (const email of company.emails) {
+				if (isUnsubscribed(email)) seen.add(email.trim().toLowerCase());
+			}
+			for (const person of company.people ?? []) {
+				if (person.email && isUnsubscribed(person.email)) {
+					seen.add(person.email.trim().toLowerCase());
+				}
+			}
+		}
+		return seen.size;
+	});
+
 	function recipientKey(r: { company_id: string; company_email: string }): string {
 		return `${r.company_id}:${r.company_email}`;
 	}
@@ -153,11 +180,14 @@
 		return (company.people ?? []).filter((p) => p.email);
 	}
 
+	// Selectable recipients of a company. Unsubscribed addresses are excluded
+	// here, which keeps them out of select-all, the company checkbox and the
+	// tri-state calculations in one place.
 	function companyRecipients(company: Company): SelectedRecipient[] {
 		const recips: SelectedRecipient[] = [];
 		const seen = new Set<string>();
 		for (const e of company.emails) {
-			if (seen.has(e)) continue;
+			if (seen.has(e) || isUnsubscribed(e)) continue;
 			seen.add(e);
 			recips.push({
 				company_id: company.id,
@@ -167,7 +197,7 @@
 			});
 		}
 		for (const p of company.people ?? []) {
-			if (p.email && !seen.has(p.email)) {
+			if (p.email && !seen.has(p.email) && !isUnsubscribed(p.email)) {
 				seen.add(p.email);
 				recips.push({
 					company_id: p.id,
@@ -186,6 +216,7 @@
 	});
 
 	function toggleEmail(company: Company, email: string) {
+		if (isUnsubscribed(email)) return;
 		const key = `${company.id}:${email}`;
 		if (selectedKeys.has(key)) {
 			selectedRecipients = selectedRecipients.filter(
@@ -205,6 +236,7 @@
 	}
 
 	function togglePerson(company: Company, person: Person) {
+		if (isUnsubscribed(person.email)) return;
 		const key = `${person.id}:${person.email}`;
 		if (selectedKeys.has(key)) {
 			selectedRecipients = selectedRecipients.filter(
@@ -286,6 +318,11 @@
 
 	<div class="text-sm text-surface-600">
 		{selectedRecipients.length} email(s) selected / {filtered.length} companies shown
+		{#if unsubscribedShown > 0}
+			<span class="text-error-500">
+				· {unsubscribedShown} désabonné(s) exclu(s)
+			</span>
+		{/if}
 	</div>
 
 	<div class="table-container">
@@ -355,15 +392,6 @@
 						<td onclick={(e: MouseEvent) => e.stopPropagation()}>
 							{#if company.emails.length === 0}
 								<span class="text-surface-400">—</span>
-							{:else if company.emails.length === 1}
-								<label class="flex items-center gap-2">
-									<input
-										type="checkbox"
-										checked={selectedKeys.has(`${company.id}:${company.emails[0]}`)}
-										onchange={() => toggleEmail(company, company.emails[0])}
-									/>
-									<span>{company.emails[0]}</span>
-								</label>
 							{:else}
 								<div class="flex flex-col gap-1">
 									{#each company.emails as email}
@@ -371,9 +399,17 @@
 											<input
 												type="checkbox"
 												checked={selectedKeys.has(`${company.id}:${email}`)}
+												disabled={isUnsubscribed(email)}
 												onchange={() => toggleEmail(company, email)}
 											/>
-											<span>{email}</span>
+											<span class={isUnsubscribed(email) ? 'text-surface-400 line-through' : ''}>
+												{email}
+											</span>
+											{#if isUnsubscribed(email)}
+												<span class="badge preset-filled-error-500 text-xs whitespace-nowrap">
+													Désabonné
+												</span>
+											{/if}
 										</label>
 									{/each}
 								</div>
@@ -456,9 +492,17 @@
 									<input
 										type="checkbox"
 										checked={selectedKeys.has(`${person.id}:${person.email}`)}
+										disabled={isUnsubscribed(person.email)}
 										onchange={() => togglePerson(company, person)}
 									/>
-									<span>{person.email}</span>
+									<span class={isUnsubscribed(person.email) ? 'text-surface-400 line-through' : ''}>
+										{person.email}
+									</span>
+									{#if isUnsubscribed(person.email)}
+										<span class="badge preset-filled-error-500 text-xs whitespace-nowrap">
+											Désabonné
+										</span>
+									{/if}
 								</label>
 							</td>
 							<td>
