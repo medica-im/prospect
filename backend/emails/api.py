@@ -5,7 +5,7 @@ from django.db.models import Count, Max
 from django.shortcuts import get_object_or_404
 from ninja import Router
 
-from .models import CompanyType, EmailTemplate, SentEmail
+from .models import CompanyType, EmailTemplate, SentEmail, Unsubscribe
 from .schemas import (
     CompanyEmailStats,
     CompanyOut,
@@ -15,12 +15,14 @@ from .schemas import (
     SendEmailResponse,
     SentEmailOut,
     SentEmailPreview,
+    UnsubscribeOut,
 )
 from .services.twenty_crm import fetch_companies
 from .services.imap import fetch_email_from_sent
 from webprospects.french import UnknownArticleError
 
 from .services.renderer import build_context, render_template
+from .services.unsubscribe import filter_recipients
 from .tasks import send_prospect_email
 
 logger = logging.getLogger(__name__)
@@ -71,10 +73,16 @@ def list_templates(request):
 
 @router.post("/emails/send", response=SendEmailResponse)
 def send_emails(request, payload: SendEmailRequest):
-    """Queue emails to selected companies with the chosen template."""
+    """Queue emails to selected companies with the chosen template.
+
+    Unsubscribed recipients are dropped here so the operator gets immediate
+    feedback; the task re-checks before sending, which is the real gate.
+    """
     template = get_object_or_404(EmailTemplate, id=payload.template_id)
 
-    for recipient in payload.recipients:
+    recipients, blocked = filter_recipients(payload.recipients)
+
+    for recipient in recipients:
         send_prospect_email.delay(
             template_id=template.id,
             company_name=recipient.company_name,
@@ -83,10 +91,25 @@ def send_emails(request, payload: SendEmailRequest):
             twenty_crm_id=recipient.twenty_crm_id,
         )
 
+    message = f"Queued {len(recipients)} email(s) for sending."
+    if blocked:
+        logger.info(f"Skipped {len(blocked)} unsubscribed recipient(s)")
+        message += f" Skipped {len(blocked)} unsubscribed recipient(s)."
+
     return SendEmailResponse(
-        queued=len(payload.recipients),
-        message=f"Queued {len(payload.recipients)} email(s) for sending.",
+        queued=len(recipients),
+        message=message,
+        skipped=len(blocked),
+        skipped_emails=[r.company_email for r in blocked],
     )
+
+
+# --- Unsubscribes ---
+
+@router.get("/unsubscribes", response=list[UnsubscribeOut])
+def list_unsubscribes(request):
+    """Suppression list, consumed by the frontend to flag opted-out addresses."""
+    return Unsubscribe.objects.all()
 
 
 # --- Sent Emails ---

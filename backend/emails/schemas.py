@@ -57,6 +57,8 @@ class SendEmailRequest(Schema):
 class SendEmailResponse(Schema):
     queued: int
     message: str
+    skipped: int = 0
+    skipped_emails: list[str] = []
 
 
 # --- Sent Emails ---
@@ -76,6 +78,16 @@ class SentEmailOut(Schema):
 class CompanyEmailStats(Schema):
     total_sent: int
     last_sent_at: datetime | None = None
+
+
+# --- Unsubscribes ---
+
+class UnsubscribeOut(Schema):
+    email: str
+    unsubscribed_at: datetime
+    company_name: str
+    twenty_crm_id: str
+    source: str
 
 
 class SentEmailPreview(Schema):

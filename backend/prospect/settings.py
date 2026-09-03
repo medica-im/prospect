@@ -67,7 +67,7 @@ ROOT_URLCONF = 'prospect.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
+        'DIRS': [BASE_DIR / 'templates'],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -166,6 +166,10 @@ TWENTY_API_KEY = env('TWENTY_API_KEY', default='')
 
 # Base URL of this app (used to build absolute admin links in error messages)
 ADMIN_BASE_URL = env('ADMIN_BASE_URL', default='http://prospect.localhost')
+
+# Public base URL, used to build absolute unsubscribe links placed inside emails.
+# MUST be the externally reachable origin in production (e.g. https://prospect.example.com).
+SITE_URL = env('SITE_URL', default='http://localhost:8000')
 
 # Session
 CSRF_TRUSTED_ORIGINS = env.list('CSRF_TRUSTED_ORIGINS', default=['http://localhost:5173'])

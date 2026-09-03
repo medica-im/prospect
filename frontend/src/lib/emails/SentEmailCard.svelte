@@ -13,7 +13,10 @@
 		error_message: string;
 	};
 
-	let { sentEmail }: { sentEmail: SentEmail } = $props();
+	let {
+		sentEmail,
+		unsubscribed = false
+	}: { sentEmail: SentEmail; unsubscribed?: boolean } = $props();
 
 	let formattedDate = $derived(
 		new Date(sentEmail.sent_at).toLocaleDateString('fr-FR', {
@@ -33,7 +36,12 @@
 >
 	<span class="text-sm text-surface-600">{formattedDate}</span>
 	<span class="font-medium truncate">{sentEmail.company_name}</span>
-	<span class="text-sm truncate">{sentEmail.company_email}</span>
+	<span class="text-sm truncate flex items-center gap-2">
+		{sentEmail.company_email}
+		{#if unsubscribed}
+			<span class="badge preset-filled-error-500 text-xs whitespace-nowrap">Désabonné</span>
+		{/if}
+	</span>
 	<span class="text-sm">
 		{#if sentEmail.company_type}
 			<span class="badge preset-filled-surface-500 text-xs">{sentEmail.company_type.label}</span>

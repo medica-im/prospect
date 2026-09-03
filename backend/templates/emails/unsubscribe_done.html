@@ -1,0 +1,22 @@
+{% extends "emails/unsubscribe_base.html" %}
+
+{% block title %}Au revoir{% endblock %}
+
+{% block content %}
+  <h1>Au revoir — et merci.</h1>
+  <p>
+    C'est fait&nbsp;: vous ne recevrez plus d'emails de notre part à l'adresse
+    <span class="email">{{ email }}</span>.
+  </p>
+  <p>
+    Désolés de vous avoir dérangé·e. Nous œuvrons pour un logiciel libre au
+    service des soignants, et si le sujet vous intéresse un jour, nos portes
+    vous restent ouvertes&nbsp;:
+  </p>
+  <p>
+    <a href="https://medecinelibre.com">medecinelibre.com</a>
+  </p>
+  <p class="muted">
+    Bonne continuation, et bon courage pour la suite.
+  </p>
+{% endblock %}
