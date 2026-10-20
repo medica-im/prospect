@@ -1,7 +1,9 @@
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from axes.models import AccessAttempt, AccessFailureLog
 from django.test import Client, TestCase
+from django.utils import timezone
 
 from emails.models import CompanyType, EmailTemplate
 from prospect.urls import api
@@ -109,3 +111,71 @@ class SessionAccessTests(TestCase):
         )
         self.assertEqual(response.status_code, 200)
         self.assertEqual(mock_task.delay.call_count, 1)
+
+
+class LoginLockoutTests(TestCase):
+    """django-axes: 5 failures lock a username for 15 minutes (settings.AXES_*)."""
+
+    def setUp(self):
+        get_user_model().objects.create_user(
+            "operator", password="s3cret-pass", is_staff=True
+        )
+
+    def _api_login(self, password, username="operator", **extra):
+        return self.client.post(
+            "/api/auth/login",
+            data={"username": username, "password": password},
+            content_type="application/json",
+            **extra,
+        )
+
+    def _rewind(self, minutes):
+        """Pretend the recorded failures happened `minutes` earlier."""
+        for attempt in AccessAttempt.objects.all():
+            attempt.attempt_time -= timezone.timedelta(minutes=minutes)
+            attempt.save()
+
+    def test_fifth_failure_locks_even_the_right_password_out(self):
+        for _ in range(4):
+            self.assertEqual(self._api_login("wrong").status_code, 401)
+        self.assertEqual(self._api_login("wrong").status_code, 429)
+        self.assertEqual(self._api_login("s3cret-pass").status_code, 429)
+        self.assertEqual(self.client.get("/api/auth/me").status_code, 401)
+
+    def test_lock_lifts_after_the_cool_off(self):
+        for _ in range(5):
+            self._api_login("wrong")
+        self._rewind(16)
+        self.assertEqual(self._api_login("s3cret-pass").status_code, 200)
+
+    def test_attempts_during_the_lock_do_not_extend_it(self):
+        for _ in range(5):
+            self._api_login("wrong")
+        self._rewind(10)
+        self.assertEqual(self._api_login("wrong").status_code, 429)
+        self._rewind(6)
+        self.assertEqual(self._api_login("s3cret-pass").status_code, 200)
+
+    def test_success_resets_the_count(self):
+        for _ in range(4):
+            self._api_login("wrong")
+        self.assertEqual(self._api_login("s3cret-pass").status_code, 200)
+        self.client.post("/api/auth/logout")
+        for _ in range(4):
+            self.assertEqual(self._api_login("wrong").status_code, 401)
+
+    def test_unknown_usernames_are_locked_too(self):
+        for _ in range(5):
+            self._api_login("wrong", username="nobody")
+        self.assertEqual(self._api_login("wrong", username="nobody").status_code, 429)
+
+    def test_admin_and_app_logins_share_one_count(self):
+        for _ in range(5):
+            self.client.post("/admin/login/", {"username": "operator", "password": "wrong"})
+        self.assertEqual(self._api_login("s3cret-pass").status_code, 429)
+
+    def test_failures_are_logged_with_the_nginx_client_address(self):
+        self._api_login("wrong", HTTP_X_REAL_IP="203.0.113.7")
+        failure = AccessFailureLog.objects.get()
+        self.assertEqual(failure.username, "operator")
+        self.assertEqual(failure.ip_address, "203.0.113.7")

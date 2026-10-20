@@ -10,6 +10,8 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
+from datetime import timedelta
+
 import environ
 from pathlib import Path
 
@@ -46,6 +48,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'axes',
     'emails',
     'twenty',
     'webprospects',
@@ -60,6 +63,8 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    # Last, as django-axes requires: turns a locked-out login into its 429.
+    'axes.middleware.AxesMiddleware',
 ]
 
 ROOT_URLCONF = 'prospect.urls'
@@ -95,6 +100,38 @@ DATABASES = {
         'PORT': env('POSTGRES_PORT', default='5432'),
     }
 }
+
+
+# Login lockout (django-axes). After AXES_FAILURE_LIMIT consecutive failures a
+# username is refused for AXES_COOLOFF_TIME, on the app login and the admin
+# alike. Every attempt is recorded and listed in the admin under "Axes".
+AUTHENTICATION_BACKENDS = [
+    'axes.backends.AxesStandaloneBackend',
+    'django.contrib.auth.backends.ModelBackend',
+]
+AXES_FAILURE_LIMIT = 5
+AXES_COOLOFF_TIME = timedelta(minutes=15)
+# By username only: every app login reaches Django from the SvelteKit
+# container, so locking by IP would lock out everyone at once.
+AXES_LOCKOUT_PARAMETERS = ['username']
+AXES_RESET_ON_SUCCESS = True
+# The default restarts the cool-off on every attempt made during it, which lets
+# an attacker keep the real user locked out indefinitely.
+AXES_RESET_COOL_OFF_ON_FAILURE_DURING_LOCKOUT = False
+AXES_ENABLE_ACCESS_FAILURE_LOG = True
+
+
+def axes_client_ip(request):
+    """Address recorded with each attempt (logging only, not used to lock).
+
+    Django is published on 127.0.0.1 only, so requests come through nginx,
+    which overwrites X-Real-IP with the peer address. Admin logins record the
+    visitor; app logins record the SvelteKit container, which makes the call.
+    """
+    return request.META.get('HTTP_X_REAL_IP') or request.META.get('REMOTE_ADDR')
+
+
+AXES_CLIENT_IP_CALLABLE = axes_client_ip
 
 
 # Password validation

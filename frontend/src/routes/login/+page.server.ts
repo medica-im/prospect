@@ -26,6 +26,11 @@ export const actions: Actions = {
 			body: JSON.stringify({ username, password })
 		});
 
+		// django-axes: too many failures for this username.
+		if (response.status === 429) {
+			return fail(429, { error: 'Too many failed attempts. Try again in 15 minutes.' });
+		}
+
 		if (!response.ok) {
 			const body = await response.text();
 			console.error(`Login failed: ${response.status} ${response.statusText}`, body);
