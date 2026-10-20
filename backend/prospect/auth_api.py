@@ -29,8 +29,7 @@ def auth_logout(request):
     return {"detail": "Logged out"}
 
 
-@router.get("/me", response={200: UserOut, 401: dict})
+@router.get("/me", response=UserOut)
 def auth_me(request):
-    if not request.user.is_authenticated:
-        return 401, {"detail": "Not authenticated"}
-    return 200, UserOut(username=request.user.username, email=request.user.email)
+    # The API-wide session auth already answered 401 for anonymous callers.
+    return UserOut(username=request.user.username, email=request.user.email)

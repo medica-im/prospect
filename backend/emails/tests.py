@@ -1,5 +1,6 @@
 from unittest.mock import patch
 
+from django.contrib.auth import get_user_model
 from django.core import signing
 from django.test import TestCase
 
@@ -143,6 +144,7 @@ class UnsubscribeViewTests(TestCase):
 
 class SendFilteringTests(TestCase):
     def setUp(self):
+        self.client.force_login(get_user_model().objects.create_user("operator"))
         self.company_type = CompanyType.objects.create(name="msp", label="MSP")
         self.template = EmailTemplate.objects.create(
             name="T", subject_template="Bonjour", html_body="<html><body>B</body></html>"
