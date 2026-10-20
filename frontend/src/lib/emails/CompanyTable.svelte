@@ -438,13 +438,16 @@
 						<td class="hidden lg:table-cell">
 							{#if company.domain}
 								<a
-									href={company.domain}
+									href={/^https?:\/\//.test(company.domain)
+										? company.domain
+										: `https://${company.domain}`}
 									target="_blank"
 									rel="noopener"
 									class="anchor"
 									onclick={(e: MouseEvent) => e.stopPropagation()}
 								>
-									{company.domain.replace('https://', '')}
+									<!-- Twenty v2 stores domains without the scheme; v1 kept it. -->
+									{company.domain.replace(/^https?:\/\//, '')}
 								</a>
 							{:else}
 								—
