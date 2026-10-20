@@ -93,7 +93,7 @@ services:
     # until the TLS handshake times out — every deploy would fail --wait. This
     # is the same header nginx sends, and SECURE_PROXY_SSL_HEADER trusts it.
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request,sys; r=urllib.request.urlopen(urllib.request.Request('http://127.0.0.1:8000/healthz', headers={'X-Forwarded-Proto':'https'}), timeout=5); sys.exit(0 if r.status == 200 else 1)"]
+      test: ["CMD", "python", "-c", "import urllib.request,sys; r=urllib.request.urlopen(urllib.request.Request('http://localhost:8000/healthz', headers={'X-Forwarded-Proto':'https'}), timeout=5); sys.exit(0 if r.status == 200 else 1)"]
       interval: 15s
       timeout: 10s
       retries: 5
