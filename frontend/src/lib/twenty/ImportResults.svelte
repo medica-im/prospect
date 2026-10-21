@@ -115,7 +115,7 @@
 			<p class="text-lg font-bold mb-2">Importing companies to Twenty CRM...</p>
 
 			{#if progress.total > 0}
-				<div class="w-full bg-surface-200 rounded-full h-4 overflow-hidden">
+				<div class="w-full bg-surface-200-800 rounded-full h-4 overflow-hidden">
 					<div
 						class="bg-primary-500 h-4 rounded-full transition-all duration-300"
 						style="width: {progressPercent}%"

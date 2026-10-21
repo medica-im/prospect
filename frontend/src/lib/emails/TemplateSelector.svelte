@@ -48,7 +48,7 @@
 							{template.company_types.map((ct) => ct.label).join(', ')}
 						</span>
 					</div>
-					<p class="text-sm text-surface-600">
+					<p class="text-sm text-surface-600-400">
 						Subject: {template.subject_template}
 					</p>
 				</button>

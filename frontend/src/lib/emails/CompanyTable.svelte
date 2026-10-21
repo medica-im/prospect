@@ -70,8 +70,8 @@
 		if (days < 30) return 'text-yellow-600';
 		if (days < 90) return 'text-orange-500';
 		if (days < 180) return 'text-red-500';
-		if (days < 365) return 'text-red-700';
-		return 'text-red-900';
+		if (days < 365) return 'text-red-700 dark:text-red-400';
+		return 'text-red-900 dark:text-red-300';
 	}
 
 	function companySentCount(company: Company): number {
@@ -316,7 +316,7 @@
 		</label>
 	</div>
 
-	<div class="text-sm text-surface-600">
+	<div class="text-sm text-surface-600-400">
 		{selectedRecipients.length} email(s) selected / {filtered.length} companies shown
 		{#if unsubscribedShown > 0}
 			<span class="text-error-500">
@@ -342,7 +342,7 @@
 					<th class="hidden md:table-cell">
 						<button
 							type="button"
-							class="text-sm font-bold text-surface-500 hover:text-surface-900 transition-colors whitespace-nowrap"
+							class="text-sm font-bold text-surface-500 hover:text-surface-950-50 transition-colors whitespace-nowrap"
 							onclick={() => toggleSort('sent_count')}
 						>
 							Sent{sortField === 'sent_count' ? (sortDesc ? ' ↓' : ' ↑') : ''}
@@ -351,7 +351,7 @@
 					<th class="hidden md:table-cell">
 						<button
 							type="button"
-							class="text-sm font-bold text-surface-500 hover:text-surface-900 transition-colors whitespace-nowrap"
+							class="text-sm font-bold text-surface-500 hover:text-surface-950-50 transition-colors whitespace-nowrap"
 							onclick={() => toggleSort('last_sent')}
 						>
 							Last email{sortField === 'last_sent' ? (sortDesc ? ' ↓' : ' ↑') : ''}
@@ -362,7 +362,7 @@
 					<th class="hidden lg:table-cell">
 						<button
 							type="button"
-							class="text-sm font-bold text-surface-500 hover:text-surface-900 transition-colors"
+							class="text-sm font-bold text-surface-500 hover:text-surface-950-50 transition-colors"
 							onclick={() => toggleSort('created_at')}
 						>
 							Created at {sortField === 'created_at' ? (sortDesc ? '↓' : '↑') : ''}
@@ -453,7 +453,7 @@
 								—
 							{/if}
 						</td>
-						<td class="hidden lg:table-cell text-sm text-surface-600 whitespace-nowrap">
+						<td class="hidden lg:table-cell text-sm text-surface-600-400 whitespace-nowrap">
 							{new Date(company.created_at).toLocaleDateString('fr-FR', {
 								day: '2-digit',
 								month: '2-digit',
@@ -468,7 +468,7 @@
 									href="{twentyBaseUrl}/object/company/{company.id}"
 									target="_blank"
 									rel="noopener"
-									class="text-surface-500 hover:text-surface-900 transition-colors"
+									class="text-surface-500 hover:text-surface-950-50 transition-colors"
 									title="Open in Twenty CRM"
 									onclick={(e: MouseEvent) => e.stopPropagation()}
 								>
@@ -527,7 +527,7 @@
 							</td>
 							<td class="hidden lg:table-cell text-surface-400">—</td>
 							<td class="hidden lg:table-cell text-surface-400">—</td>
-							<td class="hidden lg:table-cell text-sm text-surface-600 whitespace-nowrap">
+							<td class="hidden lg:table-cell text-sm text-surface-600-400 whitespace-nowrap">
 								{#if person.created_at}
 									{new Date(person.created_at).toLocaleDateString('fr-FR', {
 										day: '2-digit',
@@ -546,7 +546,7 @@
 										href="{twentyBaseUrl}/object/person/{person.id}"
 										target="_blank"
 										rel="noopener"
-										class="text-surface-500 hover:text-surface-900 transition-colors"
+										class="text-surface-500 hover:text-surface-950-50 transition-colors"
 										title="Open in Twenty CRM"
 										onclick={(e: MouseEvent) => e.stopPropagation()}
 									>

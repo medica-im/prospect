@@ -73,7 +73,7 @@
 	nav {
 		display: flex;
 		justify-content: center;
-		--background: rgba(255, 255, 255, 0.7);
+		--background: light-dark(rgba(255, 255, 255, 0.7), rgba(255, 255, 255, 0.08));
 	}
 
 	svg {

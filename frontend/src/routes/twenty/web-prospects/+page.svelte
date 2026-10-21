@@ -464,7 +464,7 @@
 	<div class="card p-6 text-center space-y-4">
 		<p class="text-lg font-bold">Creating MSP in Twenty CRM…</p>
 		{#if runProgress.total > 0}
-			<div class="w-full bg-surface-200 rounded-full h-4 overflow-hidden">
+			<div class="w-full bg-surface-200-800 rounded-full h-4 overflow-hidden">
 				<div class="bg-primary-500 h-4 rounded-full transition-all" style="width: {progressPercent}%"></div>
 			</div>
 			<p class="text-sm text-surface-500">
@@ -515,7 +515,7 @@
 	<div class="card p-6 space-y-4">
 		<h3 class="h4">Update existing MSP in Twenty</h3>
 		{#if nothingMissing}
-			<p class="text-surface-600">
+			<p class="text-surface-600-400">
 				This MSP already exists in Twenty and has all the essential data (email, phone,
 				domain, address). Nothing to add.
 			</p>
@@ -523,7 +523,7 @@
 				<button class="btn preset-filled-primary-500" onclick={closeUpdate}>Close</button>
 			</footer>
 		{:else}
-			<p class="text-surface-600">
+			<p class="text-surface-600-400">
 				This MSP already exists. The following data is missing and will be added to Twenty:
 			</p>
 			<ul class="space-y-2">

@@ -34,7 +34,7 @@
 	href={resolve(`/emails/sent/${sentEmail.id}`)}
 	class="card p-4 flex flex-col lg:grid lg:grid-cols-[140px_1fr_1fr_100px_80px] gap-2 lg:gap-4 items-center hover:preset-tonal-primary transition-colors no-underline"
 >
-	<span class="text-sm text-surface-600">{formattedDate}</span>
+	<span class="text-sm text-surface-600-400">{formattedDate}</span>
 	<span class="font-medium truncate">{sentEmail.company_name}</span>
 	<span class="text-sm truncate flex items-center gap-2">
 		{sentEmail.company_email}

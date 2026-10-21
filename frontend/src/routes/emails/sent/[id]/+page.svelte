@@ -33,7 +33,7 @@
 				title="Email preview"
 				srcdoc={data.preview.html_body}
 				sandbox=""
-				class="w-full min-h-[600px] bg-white rounded border border-surface-300"
+				class="w-full min-h-[600px] bg-white rounded border border-surface-300-700"
 			></iframe>
 		</div>
 	</div>
