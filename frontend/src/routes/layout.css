@@ -84,6 +84,25 @@ button:focus:not(:focus-visible) {
 	outline: none;
 }
 
+/* Tailwind v4 dropped v3's pointer cursor on buttons, so nothing clickable
+   showed a hand. In the base layer so a cursor-* utility still wins. */
+@layer base {
+	button,
+	[role='button'],
+	select,
+	summary,
+	input[type='checkbox'],
+	input[type='radio'],
+	label:has(> input[type='checkbox'], > input[type='radio']) {
+		cursor: pointer;
+	}
+
+	:is(button, select, input):disabled,
+	label:has(> input:disabled) {
+		cursor: not-allowed;
+	}
+}
+
 @media (min-width: 720px) {
 	h1 {
 		font-size: 2.4rem;
