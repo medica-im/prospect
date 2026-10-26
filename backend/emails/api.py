@@ -2,6 +2,7 @@ import logging
 
 from django.conf import settings
 from django.db.models import Count, Max
+from django.db.models.functions import Lower
 from django.shortcuts import get_object_or_404
 from ninja import Router
 
@@ -49,6 +50,27 @@ def email_stats(request):
         s["twenty_crm_id"]: CompanyEmailStats(
             total_sent=s["total_sent"],
             last_sent_at=s["last_sent_at"],
+        )
+        for s in stats
+    }
+
+
+@router.get("/email-stats/by-address", response=dict[str, CompanyEmailStats])
+def email_stats_by_address(request):
+    """Return sent email count and last sent date per recipient address (lowercased).
+
+    The per-company stats above lump every address of a company together; this
+    is what lets the send page filter on how often one inbox was contacted.
+    """
+    stats = (
+        SentEmail.objects.filter(success=True)
+        .annotate(address=Lower("company_email"))
+        .values("address")
+        .annotate(total_sent=Count("id"), last_sent_at=Max("sent_at"))
+    )
+    return {
+        s["address"]: CompanyEmailStats(
+            total_sent=s["total_sent"], last_sent_at=s["last_sent_at"]
         )
         for s in stats
     }

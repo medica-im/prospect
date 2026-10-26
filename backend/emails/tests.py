@@ -222,3 +222,33 @@ class SendFilteringTests(TestCase):
         self.assertEqual(load_token(token), {"email": "ok@example.fr", "sent_email_id": sent.id})
         # The footer fallback injected the link even though the template lacks it.
         self.assertIn(url, mock_send.call_args.kwargs["html_body"])
+
+
+class EmailStatsByAddressTests(TestCase):
+    def setUp(self):
+        self.client.force_login(get_user_model().objects.create_user("operator"))
+        for email, success in [
+            ("Contact@MSP.example", True),
+            ("contact@msp.example", True),
+            ("contact@msp.example", False),
+            ("other@msp.example", True),
+        ]:
+            SentEmail.objects.create(
+                company_name="MSP", company_email=email, twenty_crm_id="crm-1", success=success
+            )
+
+    def test_counts_successful_sends_per_lowercased_address(self):
+        response = self.client.get("/api/email-stats/by-address")
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(
+            {address: s["total_sent"] for address, s in body.items()},
+            {"contact@msp.example": 2, "other@msp.example": 1},
+        )
+        last_success = SentEmail.objects.filter(
+            company_email__iexact="contact@msp.example", success=True
+        ).latest("sent_at")
+        self.assertEqual(
+            body["contact@msp.example"]["last_sent_at"][:19],
+            last_success.sent_at.isoformat()[:19],
+        )
