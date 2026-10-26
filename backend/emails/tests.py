@@ -1,7 +1,10 @@
+from io import StringIO
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.core import signing
+from django.core.management import call_command
+from django.core.management.base import CommandError
 from django.test import TestCase, override_settings
 
 from .models import CompanyType, EmailTemplate, SentEmail, Unsubscribe
@@ -293,3 +296,70 @@ class DryRunTests(TestCase):
         mock_post.return_value.json.return_value = {"id": "<mg-1>"}
         self.assertEqual(send_email("ok@msp.example", "S", "<p>B</p>")["id"], "<mg-1>")
         mock_post.assert_called_once()
+
+
+@patch("emails.management.commands.seed_sent_history.build_context")
+@patch("emails.management.commands.seed_sent_history.fetch_companies")
+class SeedSentHistoryTests(TestCase):
+    COMPANIES = [
+        {
+            "id": "c1", "name": "CPTS Exemple", "company_type": "CPTS",
+            "emails": ["contact@cpts.example", "Contact@CPTS.example"],
+            "people": [{"id": "p1", "email": "alice@cpts.example"}, {"id": "p2", "email": ""}],
+        },
+        {"id": "c2", "name": "Cabinet", "company_type": "ORG_PRO", "emails": ["a@org.example"]},
+    ]
+
+    def setUp(self):
+        cpts = CompanyType.objects.create(name="CPTS", label="CPTS")
+        CompanyType.objects.create(name="ORG_PRO", label="Org")
+        template = EmailTemplate.objects.create(
+            name="cpts_prospect", subject_template="S", html_body="<p>B</p>"
+        )
+        template.company_types.add(cpts)
+        self.real = SentEmail.objects.create(
+            company_name="Real", company_email="real@x.example", twenty_crm_id="r", success=True,
+            mailgun_message_id="<real@mailgun>",
+        )
+
+    def seed(self, *args):
+        call_command("seed_sent_history", *args, stdout=StringIO())
+
+    def seeded(self):
+        return SentEmail.objects.filter(mailgun_message_id__startswith="<dry-run.seed-")
+
+    @override_settings(DEBUG=True, EMAIL_DRY_RUN=True)
+    def test_seeds_backdated_history_for_prospected_types_only(self, mock_fetch, _ctx):
+        mock_fetch.return_value = self.COMPANIES
+        # Enough seeds that both addresses get history in at least one.
+        for seed in range(5):
+            self.seed("--seed", str(seed))
+            if self.seeded().filter(success=True).values("company_email").distinct().count() == 2:
+                break
+        rows = self.seeded()
+        self.assertTrue(rows.exists())
+        self.assertEqual(
+            set(rows.values_list("company_email", flat=True)), {"contact@cpts.example", "alice@cpts.example"}
+        )  # no ORG_PRO (no template), no duplicate-case address, no empty one
+        self.assertTrue(all(r.sent_at < r.sent_at.now(r.sent_at.tzinfo) for r in rows))
+        self.assertEqual(
+            set(rows.filter(company_email="alice@cpts.example").values_list("twenty_crm_id", flat=True)),
+            {"p1"},
+        )
+
+    @override_settings(DEBUG=True, EMAIL_DRY_RUN=True)
+    def test_rerun_replaces_and_clear_removes_only_seeded_rows(self, mock_fetch, _ctx):
+        mock_fetch.return_value = self.COMPANIES
+        self.seed()
+        first = self.seeded().count()
+        self.seed()
+        self.assertEqual(self.seeded().count(), first)  # same seed, replaced not added
+        self.seed("--clear")
+        self.assertFalse(self.seeded().exists())
+        self.assertTrue(SentEmail.objects.filter(pk=self.real.pk).exists())
+
+    @override_settings(DEBUG=False, EMAIL_DRY_RUN=False)
+    def test_refuses_outside_dev(self, mock_fetch, _ctx):
+        with self.assertRaises(CommandError):
+            self.seed()
+        mock_fetch.assert_not_called()
