@@ -8,7 +8,10 @@ declare global {
 
 		// interface Error {}
 		// interface PageData {}
-		// interface PageState {}
+		interface PageState {
+			/** Send page wizard step, pushed as a shallow history entry. */
+			step?: 1 | 2;
+		}
 		// interface Platform {}
 	}
 }

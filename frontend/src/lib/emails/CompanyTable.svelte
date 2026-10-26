@@ -1,23 +1,40 @@
 <script lang="ts">
-	import { ExternalLinkIcon } from '@lucide/svelte';
-
-	type Person = {
-		id: string;
-		name: string;
-		email: string;
-		created_at: string;
-	};
-
-	type Company = {
-		id: string;
-		name: string;
-		emails: string[];
-		company_type: string;
-		domain: string;
-		city: string;
-		created_at: string;
-		people: Person[];
-	};
+	import {
+		ArrowDownIcon,
+		ArrowUpDownIcon,
+		ArrowUpIcon,
+		ExternalLinkIcon,
+		MinusIcon,
+		PlusIcon,
+		SearchIcon,
+		XIcon
+	} from '@lucide/svelte';
+	import {
+		bulkRecipients as bulkOfRecipients,
+		clampMaxSent,
+		companyRecipients as recipientsOf,
+		companyView,
+		countByType,
+		filterCompanies,
+		headerCheckboxAction,
+		lastSentTo as lastSentToIn,
+		normalize,
+		parseMaxSent,
+		pruneOverLimit,
+		recipientKey,
+		selectModeSelection,
+		sentTo as sentToIn,
+		sortCompanies,
+		stepMaxSent as nextMaxSent,
+		updateExcluded,
+		updateSelection,
+		type AddressStats,
+		type Company,
+		type CompanyView,
+		type Person,
+		type SelectedRecipient,
+		type SortField
+	} from './selection';
 
 	type CompanyType = {
 		id: number;
@@ -25,40 +42,66 @@
 		label: string;
 	};
 
-	type EmailStats = {
-		total_sent: number;
-		last_sent_at: string | null;
-	};
-
-	export type SelectedRecipient = {
-		company_id: string;
-		company_name: string;
-		company_email: string;
-		company_type: string;
-	};
-
 	let {
 		companies,
 		companyTypes,
 		twentyBaseUrl = '',
-		emailStats = {},
+		addressStats = {},
 		unsubscribed = [],
 		selectedRecipients = $bindable([])
 	}: {
 		companies: Company[];
 		companyTypes: CompanyType[];
 		twentyBaseUrl?: string;
-		emailStats?: Record<string, EmailStats>;
+		addressStats?: AddressStats;
 		unsubscribed?: string[];
 		selectedRecipients: SelectedRecipient[];
 	} = $props();
 
 	// Opted-out addresses stay fully visible — they are public data — but can
 	// never be selected. The backend refuses them regardless.
-	let unsubscribedSet = $derived(new Set(unsubscribed.map((e) => e.trim().toLowerCase())));
+	let unsubscribedSet = $derived(new Set(unsubscribed.map(normalize)));
 
 	function isUnsubscribed(email: string): boolean {
-		return unsubscribedSet.has((email ?? '').trim().toLowerCase());
+		return unsubscribedSet.has(normalize(email));
+	}
+
+	function sentTo(email: string): number {
+		return sentToIn(addressStats, email);
+	}
+
+	function lastSentTo(email: string): string | null {
+		return lastSentToIn(addressStats, email);
+	}
+
+	// Upper bound on how many emails an address may already have received to be
+	// shown and selected. null means no limit.
+	let maxSent = $state<number | null>(null);
+
+	function stepMaxSent(delta: 1 | -1) {
+		maxSent = nextMaxSent(maxSent, delta);
+		pruneOverMaxSent();
+	}
+
+	function typeMaxSent(e: Event & { currentTarget: HTMLInputElement }) {
+		const { text, value } = parseMaxSent(e.currentTarget.value);
+		if (e.currentTarget.value !== text) e.currentTarget.value = text;
+		maxSent = clampMaxSent(value);
+	}
+
+	function maxSentKeys(e: KeyboardEvent) {
+		if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+			e.preventDefault();
+			stepMaxSent(e.key === 'ArrowUp' ? 1 : -1);
+		}
+	}
+
+	// Committing a limit also trims a hand-made selection (select mode already
+	// follows the limit). Done on change, not input: typing "12" would otherwise
+	// prune at "1" first.
+	function pruneOverMaxSent() {
+		if (selectMode) return;
+		selectedRecipients = pruneOverLimit(selectedRecipients, addressStats, maxSent);
 	}
 
 	function getHeatColor(dateStr: string | null | undefined): string {
@@ -74,37 +117,72 @@
 		return 'text-red-900 dark:text-red-300';
 	}
 
-	function companySentCount(company: Company): number {
-		let total = emailStats[company.id]?.total_sent ?? 0;
-		for (const p of company.people ?? []) {
-			total += emailStats[p.id]?.total_sent ?? 0;
-		}
-		return total;
+	// Per-company results are computed once per data or limit change, not on
+	// every render or sort comparison: the table has hundreds of rows.
+	let viewById = $derived(
+		new Map(companies.map((c) => [c.id, companyView(c, addressStats, maxSent)]))
+	);
+	let recipientsById = $derived(
+		new Map(companies.map((c) => [c.id, recipientsOf(c, unsubscribedSet)]))
+	);
+	let bulkById = $derived(
+		new Map(
+			companies.map((c) => [c.id, bulkOfRecipients(companyRecipients(c), addressStats, maxSent)])
+		)
+	);
+
+	const emptyView: CompanyView = {
+		emails: [],
+		people: [],
+		hidden: 0,
+		sent: 0,
+		last: null,
+		groupSent: 0,
+		groupLastTime: 0
+	};
+
+	function viewOf(company: Company): CompanyView {
+		return viewById.get(company.id) ?? emptyView;
 	}
 
-	function companyLastSent(company: Company): string | null {
-		let last = emailStats[company.id]?.last_sent_at ?? null;
-		for (const p of company.people ?? []) {
-			const pl = emailStats[p.id]?.last_sent_at;
-			if (pl && (!last || new Date(pl).getTime() > new Date(last).getTime())) {
-				last = pl;
-			}
-		}
-		return last;
+	function companyRecipients(company: Company): SelectedRecipient[] {
+		return recipientsById.get(company.id) ?? [];
+	}
+
+	function bulkRecipients(company: Company): SelectedRecipient[] {
+		return bulkById.get(company.id) ?? [];
+	}
+
+	// Intl formatters are costly to build; toLocaleDateString builds one per call.
+	const dateFormat = new Intl.DateTimeFormat('fr-FR', {
+		day: '2-digit',
+		month: '2-digit',
+		year: 'numeric'
+	});
+	const dateTimeFormat = new Intl.DateTimeFormat('fr-FR', {
+		day: '2-digit',
+		month: '2-digit',
+		year: 'numeric',
+		hour: '2-digit',
+		minute: '2-digit'
+	});
+
+	function formatDate(value: string): string {
+		return dateFormat.format(new Date(value));
+	}
+
+	function formatDateTime(value: string): string {
+		return dateTimeFormat.format(new Date(value));
 	}
 
 	let search = $state('');
 	let typeFilter = $state('');
 	let noEmailOnly = $state(false);
 
-	function hasNoEmail(company: Company): boolean {
-		if (company.emails.length > 0) return false;
-		return !(company.people ?? []).some((p) => p.email);
-	}
-	let sortField = $state<'created_at' | 'last_sent' | 'sent_count'>('created_at');
+	let sortField = $state<SortField>('created_at');
 	let sortDesc = $state(true);
 
-	function toggleSort(field: 'created_at' | 'last_sent' | 'sent_count') {
+	function toggleSort(field: SortField) {
 		if (sortField === field) {
 			sortDesc = !sortDesc;
 		} else {
@@ -113,46 +191,30 @@
 		}
 	}
 
-	let filtered = $derived.by(() => {
-		let result = companies;
-		if (search) {
-			const q = search.toLowerCase();
-			result = result.filter(
-				(c) =>
-					c.name.toLowerCase().includes(q) ||
-					c.emails.some((e) => e.toLowerCase().includes(q)) ||
-					c.city.toLowerCase().includes(q)
-			);
-		}
-		if (typeFilter) {
-			result = result.filter((c) => c.company_type === typeFilter);
-		}
-		if (noEmailOnly) {
-			result = result.filter((c) => hasNoEmail(c));
-		}
-		result = [...result].sort((a, b) => {
-			if (sortField === 'sent_count') {
-				const ca = companySentCount(a);
-				const cb = companySentCount(b);
-				return sortDesc ? cb - ca : ca - cb;
-			}
-			if (sortField === 'last_sent') {
-				const la = companyLastSent(a);
-				const lb = companyLastSent(b);
-				const da = la ? new Date(la).getTime() : 0;
-				const db = lb ? new Date(lb).getTime() : 0;
-				return sortDesc ? db - da : da - db;
-			}
-			const da = new Date(a.created_at).getTime();
-			const db = new Date(b.created_at).getTime();
-			return sortDesc ? db - da : da - db;
-		});
-		return result;
-	});
+	// Every filter but the type, so each type button can say what it would show.
+	let preType = $derived(filterCompanies(companies, { search, noEmailOnly, maxSent }, bulkRecipients));
 
-	let selectedKeys = $derived(
-		new Set(selectedRecipients.map((r) => `${r.company_id}:${r.company_email}`))
+	let typeCounts = $derived(countByType(preType));
+
+	let filtersActive = $derived(!!search || !!typeFilter || noEmailOnly || maxSent !== null);
+
+	function resetFilters() {
+		search = '';
+		typeFilter = '';
+		noEmailOnly = false;
+		maxSent = null;
+	}
+
+	let filtered = $derived(
+		sortCompanies(
+			typeFilter ? preType.filter((c) => c.company_type === typeFilter) : preType,
+			sortField,
+			sortDesc,
+			viewOf
+		)
 	);
+
+	let selectedKeys = $derived(new Set(selectedRecipients.map(recipientKey)));
 
 	// How many of the currently visible addresses are opted out.
 	let unsubscribedShown = $derived.by(() => {
@@ -160,214 +222,327 @@
 		const seen = new Set<string>();
 		for (const company of filtered) {
 			for (const email of company.emails) {
-				if (isUnsubscribed(email)) seen.add(email.trim().toLowerCase());
+				if (isUnsubscribed(email)) seen.add(normalize(email));
 			}
 			for (const person of company.people ?? []) {
-				if (person.email && isUnsubscribed(person.email)) {
-					seen.add(person.email.trim().toLowerCase());
-				}
+				if (person.email && isUnsubscribed(person.email)) seen.add(normalize(person.email));
 			}
 		}
 		return seen.size;
 	});
 
-	function recipientKey(r: { company_id: string; company_email: string }): string {
-		return `${r.company_id}:${r.company_email}`;
-	}
-
-	// Only people with an email are shown/selectable as recipients.
-	function peopleWithEmail(company: Company): Person[] {
-		return (company.people ?? []).filter((p) => p.email);
-	}
-
-	// Selectable recipients of a company. Unsubscribed addresses are excluded
-	// here, which keeps them out of select-all, the company checkbox and the
-	// tri-state calculations in one place.
-	function companyRecipients(company: Company): SelectedRecipient[] {
-		const recips: SelectedRecipient[] = [];
-		const seen = new Set<string>();
-		for (const e of company.emails) {
-			if (seen.has(e) || isUnsubscribed(e)) continue;
-			seen.add(e);
-			recips.push({
-				company_id: company.id,
-				company_name: company.name,
-				company_email: e,
-				company_type: company.company_type
-			});
-		}
-		for (const p of company.people ?? []) {
-			if (p.email && !seen.has(p.email) && !isUnsubscribed(p.email)) {
-				seen.add(p.email);
-				recips.push({
-					company_id: p.id,
-					company_name: company.name,
-					company_email: p.email,
-					company_type: company.company_type
-				});
-			}
-		}
-		return recips;
-	}
+	// Addresses of the listed companies that the sent limit hides.
+	let hiddenByLimit = $derived(filtered.reduce((n, c) => n + viewOf(c).hidden, 0));
 
 	let allFilteredSelected = $derived.by(() => {
-		const keys = filtered.flatMap((c) => companyRecipients(c).map(recipientKey));
+		const keys = filtered.flatMap((c) => bulkRecipients(c).map(recipientKey));
 		return keys.length > 0 && keys.every((k) => selectedKeys.has(k));
 	});
 
+	// Select mode, entered from the header checkbox: the selection is computed
+	// from the filters (search, type, sent limit) instead of being a fixed list,
+	// so changing a filter re-selects. Boxes unticked by hand meanwhile are
+	// remembered as exceptions and survive filter changes.
+	let selectMode = $state(false);
+	let excluded = $state(new Set<string>());
+
+	$effect(() => {
+		if (selectMode) {
+			selectedRecipients = selectModeSelection(filtered, bulkRecipients, excluded);
+		}
+	});
+
+	// Eligible visible addresses unticked by hand while in select mode.
+	let excludedShown = $derived.by(() => {
+		if (!selectMode) return 0;
+		return filtered.reduce(
+			(n, c) => n + bulkRecipients(c).filter((r) => excluded.has(recipientKey(r))).length,
+			0
+		);
+	});
+
+	function setPicked(recips: SelectedRecipient[], pick: boolean) {
+		if (selectMode) excluded = updateExcluded(excluded, recips, pick);
+		else selectedRecipients = updateSelection(selectedRecipients, recips, pick);
+	}
+
 	function toggleEmail(company: Company, email: string) {
 		if (isUnsubscribed(email)) return;
-		const key = `${company.id}:${email}`;
-		if (selectedKeys.has(key)) {
-			selectedRecipients = selectedRecipients.filter(
-				(r) => !(r.company_id === company.id && r.company_email === email)
-			);
-		} else {
-			selectedRecipients = [
-				...selectedRecipients,
-				{
-					company_id: company.id,
-					company_name: company.name,
-					company_email: email,
-					company_type: company.company_type
-				}
-			];
-		}
+		const r = {
+			company_id: company.id,
+			company_name: company.name,
+			company_email: email,
+			company_type: company.company_type
+		};
+		setPicked([r], !selectedKeys.has(recipientKey(r)));
 	}
 
 	function togglePerson(company: Company, person: Person) {
 		if (isUnsubscribed(person.email)) return;
-		const key = `${person.id}:${person.email}`;
-		if (selectedKeys.has(key)) {
-			selectedRecipients = selectedRecipients.filter(
-				(r) => !(r.company_id === person.id && r.company_email === person.email)
-			);
-		} else {
-			selectedRecipients = [
-				...selectedRecipients,
-				{
-					company_id: person.id,
-					company_name: company.name,
-					company_email: person.email,
-					company_type: company.company_type
-				}
-			];
-		}
+		const r = {
+			company_id: person.id,
+			company_name: company.name,
+			company_email: person.email,
+			company_type: company.company_type
+		};
+		setPicked([r], !selectedKeys.has(recipientKey(r)));
 	}
 
 	function toggleCompany(company: Company) {
-		const recips = companyRecipients(company);
+		const recips = bulkRecipients(company);
 		if (recips.length === 0) return;
-		const keys = recips.map(recipientKey);
-		const allSelected = keys.every((k) => selectedKeys.has(k));
-		if (allSelected) {
-			const keySet = new Set(keys);
-			selectedRecipients = selectedRecipients.filter((r) => !keySet.has(recipientKey(r)));
-		} else {
-			const existingKeys = new Set(selectedRecipients.map(recipientKey));
-			const toAdd = recips.filter((r) => !existingKeys.has(recipientKey(r)));
-			selectedRecipients = [...selectedRecipients, ...toAdd];
-		}
+		setPicked(recips, !recips.every((r) => selectedKeys.has(recipientKey(r))));
+	}
+
+	// Leave select mode keeping the current selection as a fixed list.
+	function freezeSelection() {
+		selectMode = false;
+		excluded = new Set();
+	}
+
+	export function clearSelection() {
+		freezeSelection();
+		selectedRecipients = [];
 	}
 
 	function toggleAll() {
-		const allRecips = filtered.flatMap(companyRecipients);
-		if (allRecips.length === 0) return;
-		const keys = allRecips.map(recipientKey);
-		const allSelected = keys.every((k) => selectedKeys.has(k));
-		if (allSelected) {
-			const keySet = new Set(keys);
-			selectedRecipients = selectedRecipients.filter((r) => !keySet.has(recipientKey(r)));
+		const action = headerCheckboxAction(selectMode, allFilteredSelected);
+		if (action === 'clear') {
+			clearSelection();
+		} else if (action === 'untick-shown') {
+			setPicked(filtered.flatMap(bulkRecipients), false);
 		} else {
-			const existingKeys = new Set(selectedRecipients.map(recipientKey));
-			const toAdd = allRecips.filter((r) => !existingKeys.has(recipientKey(r)));
-			selectedRecipients = [...selectedRecipients, ...toAdd];
+			excluded = new Set();
+			selectMode = true;
 		}
 	}
 
 	function isCompanyFullySelected(company: Company) {
-		const keys = companyRecipients(company).map(recipientKey);
+		const keys = bulkRecipients(company).map(recipientKey);
 		return keys.length > 0 && keys.every((k) => selectedKeys.has(k));
 	}
 
 	function isCompanyPartiallySelected(company: Company) {
-		const keys = companyRecipients(company).map(recipientKey);
+		const keys = bulkRecipients(company).map(recipientKey);
 		return keys.some((k) => selectedKeys.has(k)) && !isCompanyFullySelected(company);
 	}
 </script>
 
+{#snippet sentBadge(email: string)}
+	{@const n = sentTo(email)}
+	{#if n > 0}
+		<span
+			class="text-xs whitespace-nowrap text-surface-500 tabular-nums"
+			title="{n} email(s) already sent to this address"
+		>
+			×{n}
+		</span>
+	{/if}
+{/snippet}
+
+{#snippet filterLabel(text: string)}
+	<span class="text-xs font-semibold tracking-wide text-surface-600-400 uppercase">{text}</span>
+{/snippet}
+
+{#snippet sortHeader(field: 'created_at' | 'last_sent' | 'sent_count', label: string)}
+	{@const active = sortField === field}
+	<button
+		type="button"
+		class="inline-flex items-center gap-1 whitespace-nowrap transition-colors {active
+			? 'text-primary-600-400'
+			: 'hover:text-surface-950-50'}"
+		title="Sort by {label.toLowerCase()}"
+		onclick={() => toggleSort(field)}
+	>
+		{label}
+		{#if !active}
+			<ArrowUpDownIcon class="size-3.5 opacity-50" />
+		{:else if sortDesc}
+			<ArrowDownIcon class="size-3.5" />
+		{:else}
+			<ArrowUpIcon class="size-3.5" />
+		{/if}
+	</button>
+{/snippet}
+
 <div class="space-y-4">
-	<div class="flex flex-col sm:flex-row gap-3">
-		<input
-			type="search"
-			placeholder="Search by name, email, city..."
-			class="input flex-1"
-			bind:value={search}
-		/>
-		<select class="select w-48" bind:value={typeFilter}>
-			<option value="">All types</option>
-			{#each companyTypes as ct}
-				<option value={ct.name}>{ct.label}</option>
-			{/each}
-		</select>
-		<label class="flex items-center gap-2 whitespace-nowrap">
-			<input type="checkbox" class="checkbox" bind:checked={noEmailOnly} />
-			<span class="text-sm">No email only</span>
+	<div
+		class="card flex flex-wrap items-end gap-x-6 gap-y-4 preset-outlined-surface-200-800 p-4"
+	>
+		<label class="flex w-full flex-col gap-1.5 sm:w-64">
+			{@render filterLabel('Search')}
+			<span class="relative">
+				<SearchIcon
+					class="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-surface-500"
+				/>
+				<input
+					type="search"
+					placeholder="Name, email, city…"
+					class="input pl-8"
+					bind:value={search}
+				/>
+			</span>
 		</label>
+
+		<div class="flex flex-col gap-1.5">
+			{@render filterLabel('Type')}
+			<div class="flex flex-wrap gap-1" role="group" aria-label="Company type">
+				{#each [{ name: '', label: 'All' }, ...companyTypes] as ct (ct.name)}
+					{@const count = ct.name ? (typeCounts.get(ct.name) ?? 0) : preType.length}
+					<button
+						type="button"
+						class="btn btn-sm {typeFilter === ct.name
+							? 'preset-filled-primary-500'
+							: 'preset-tonal-surface'} {count === 0 && typeFilter !== ct.name
+							? 'opacity-50'
+							: ''}"
+						aria-pressed={typeFilter === ct.name}
+						onclick={() => (typeFilter = ct.name)}
+					>
+						{ct.label}
+						<span class="text-xs tabular-nums opacity-70">{count}</span>
+					</button>
+				{/each}
+			</div>
+		</div>
+
+		<div class="flex flex-col gap-1.5">
+			{@render filterLabel('Emails received')}
+			<div class="flex items-center gap-2">
+				<div
+					class="flex items-stretch overflow-hidden rounded-base border border-surface-300-700 focus-within:ring-2 focus-within:ring-primary-500"
+					title="Bulk selection only picks addresses that already received this many emails or fewer. ↑/↓ step it."
+				>
+					<button
+						type="button"
+						class="px-2 hover:preset-tonal-surface disabled:opacity-40"
+						aria-label="Fewer"
+						disabled={maxSent === null}
+						onclick={() => stepMaxSent(-1)}
+					>
+						<MinusIcon class="size-4" />
+					</button>
+					<span class="flex items-center border-x border-surface-300-700 pl-2 text-surface-500">≤</span>
+					<input
+						type="text"
+						inputmode="numeric"
+						maxlength="3"
+						placeholder="Any"
+						aria-label="Maximum emails already received"
+						class="w-12 border-0 bg-transparent px-1 py-1 text-center tabular-nums focus:ring-0"
+						value={maxSent ?? ''}
+						oninput={typeMaxSent}
+						onchange={pruneOverMaxSent}
+						onkeydown={maxSentKeys}
+					/>
+					<button
+						type="button"
+						class="border-l border-surface-300-700 px-2 hover:preset-tonal-surface disabled:opacity-40"
+						aria-label="More"
+						disabled={maxSent === 999}
+						onclick={() => stepMaxSent(1)}
+					>
+						<PlusIcon class="size-4" />
+					</button>
+				</div>
+				<span class="w-24 text-xs text-surface-600-400">
+					{maxSent === null ? 'no limit' : maxSent === 0 ? 'never emailed' : 'or fewer'}
+				</span>
+			</div>
+		</div>
+
+		<div class="flex flex-col gap-1.5">
+			{@render filterLabel('Show')}
+			<button
+				type="button"
+				class="btn btn-sm {noEmailOnly ? 'preset-filled-primary-500' : 'preset-tonal-surface'}"
+				aria-pressed={noEmailOnly}
+				onclick={() => (noEmailOnly = !noEmailOnly)}
+			>
+				Without email only
+			</button>
+		</div>
+
+		{#if filtersActive}
+			<button
+				type="button"
+				class="btn btn-sm ml-auto preset-tonal-surface"
+				onclick={resetFilters}
+			>
+				<XIcon class="size-4" /> Reset
+			</button>
+		{/if}
 	</div>
 
-	<div class="text-sm text-surface-600-400">
-		{selectedRecipients.length} email(s) selected / {filtered.length} companies shown
+	<div class="flex flex-wrap items-center gap-2 text-sm text-surface-600-400">
+		<span>
+			<strong class="text-surface-950-50 tabular-nums">{selectedRecipients.length}</strong>
+			email(s) selected ·
+			<span class="tabular-nums">{filtered.length}</span> companies shown
+		</span>
 		{#if unsubscribedShown > 0}
-			<span class="text-error-500">
-				· {unsubscribedShown} désabonné(s) exclu(s)
+			<span class="badge preset-tonal-error text-xs">
+				{unsubscribedShown} désabonné(s) exclu(s)
+			</span>
+		{/if}
+		{#if hiddenByLimit > 0}
+			<span class="badge preset-tonal-warning text-xs">
+				{hiddenByLimit} address(es) hidden: already received more than {maxSent}
 			</span>
 		{/if}
 	</div>
 
+	{#if selectMode}
+		<div
+			class="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-container preset-tonal-primary px-3 py-2 text-sm"
+		>
+			<span>
+				<strong>Select mode</strong> — the selection follows the search, type and sent filters.
+				{#if excludedShown > 0}
+					{excludedShown} unticked by hand.
+				{/if}
+			</span>
+			<span class="ml-auto flex gap-2">
+				<button
+					type="button"
+					class="btn btn-sm preset-outlined-surface-500"
+					title="Keep the current selection as it is and stop following the filters"
+					onclick={freezeSelection}
+				>
+					Freeze selection
+				</button>
+				<button type="button" class="btn btn-sm preset-outlined-surface-500" onclick={clearSelection}>
+					Clear
+				</button>
+			</span>
+		</div>
+	{/if}
+
 	<div class="table-container">
 		<table class="table">
 			<thead>
-				<tr>
-					<th>
+				<tr class="text-xs tracking-wide text-surface-600-400 uppercase">
+					<th class="w-10">
 						<input
 							type="checkbox"
-							checked={allFilteredSelected}
+							class="checkbox"
+							checked={selectMode || allFilteredSelected}
+							indeterminate={selectMode && excludedShown > 0}
+							aria-label="Select everything matching the filters"
+							title={selectMode
+								? 'Clear the selection'
+								: 'Select everything matching the filters, and keep following them'}
 							onchange={toggleAll}
 						/>
 					</th>
 					<th class="min-w-64">Name</th>
-					<th>Email(s)</th>
+					<th>Emails</th>
 					<th>Type</th>
-					<th class="hidden md:table-cell">
-						<button
-							type="button"
-							class="text-sm font-bold text-surface-500 hover:text-surface-950-50 transition-colors whitespace-nowrap"
-							onclick={() => toggleSort('sent_count')}
-						>
-							Sent{sortField === 'sent_count' ? (sortDesc ? ' ↓' : ' ↑') : ''}
-						</button>
-					</th>
-					<th class="hidden md:table-cell">
-						<button
-							type="button"
-							class="text-sm font-bold text-surface-500 hover:text-surface-950-50 transition-colors whitespace-nowrap"
-							onclick={() => toggleSort('last_sent')}
-						>
-							Last email{sortField === 'last_sent' ? (sortDesc ? ' ↓' : ' ↑') : ''}
-						</button>
-					</th>
+					<th class="hidden md:table-cell">{@render sortHeader('sent_count', 'Sent')}</th>
+					<th class="hidden md:table-cell">{@render sortHeader('last_sent', 'Last email')}</th>
 					<th class="hidden lg:table-cell">City</th>
 					<th class="hidden lg:table-cell">Domain</th>
-					<th class="hidden lg:table-cell">
-						<button
-							type="button"
-							class="text-sm font-bold text-surface-500 hover:text-surface-950-50 transition-colors"
-							onclick={() => toggleSort('created_at')}
-						>
-							Created at {sortField === 'created_at' ? (sortDesc ? '↓' : '↑') : ''}
-						</button>
-					</th>
+					<th class="hidden lg:table-cell">{@render sortHeader('created_at', 'Added')}</th>
 					{#if twentyBaseUrl}
 						<th class="hidden lg:table-cell">CRM</th>
 					{/if}
@@ -375,6 +550,7 @@
 			</thead>
 			<tbody>
 				{#each filtered as company (company.id)}
+					{@const view = viewOf(company)}
 					<tr
 						class="cursor-pointer hover:preset-tonal-primary"
 						onclick={() => toggleCompany(company)}
@@ -390,11 +566,15 @@
 						</td>
 						<td class="min-w-64 font-medium">{company.name}</td>
 						<td onclick={(e: MouseEvent) => e.stopPropagation()}>
-							{#if company.emails.length === 0}
-								<span class="text-surface-400">—</span>
+							{#if view.emails.length === 0}
+								<span class="text-surface-400">
+									{company.emails.length > 0
+										? `${company.emails.length} hidden by the limit`
+										: '—'}
+								</span>
 							{:else}
 								<div class="flex flex-col gap-1">
-									{#each company.emails as email}
+									{#each view.emails as email}
 										<label class="flex items-center gap-2">
 											<input
 												type="checkbox"
@@ -405,6 +585,7 @@
 											<span class={isUnsubscribed(email) ? 'text-surface-400 line-through' : ''}>
 												{email}
 											</span>
+											{@render sentBadge(email)}
 											{#if isUnsubscribed(email)}
 												<span class="badge preset-filled-error-500 text-xs whitespace-nowrap">
 													Désabonné
@@ -420,16 +601,16 @@
 								<span class="badge preset-filled-surface-500 text-xs">{company.company_type}</span>
 							{/if}
 						</td>
-						<td class="hidden md:table-cell text-center">
-							{companySentCount(company)}
+						<td class="hidden md:table-cell text-center tabular-nums">
+							{#if view.emails.length > 0}
+								{view.sent}
+							{:else}
+								<span class="text-surface-400">—</span>
+							{/if}
 						</td>
-						<td class="hidden md:table-cell whitespace-nowrap text-sm font-medium {getHeatColor(companyLastSent(company))}">
-							{#if companyLastSent(company)}
-								{new Date(companyLastSent(company)!).toLocaleDateString('fr-FR', {
-									day: '2-digit',
-									month: '2-digit',
-									year: 'numeric'
-								})}
+						<td class="hidden md:table-cell whitespace-nowrap text-sm font-medium {getHeatColor(view.last)}">
+							{#if view.last}
+								{formatDate(view.last)}
 							{:else}
 								<span class="text-surface-400">—</span>
 							{/if}
@@ -454,13 +635,7 @@
 							{/if}
 						</td>
 						<td class="hidden lg:table-cell text-sm text-surface-600-400 whitespace-nowrap">
-							{new Date(company.created_at).toLocaleDateString('fr-FR', {
-								day: '2-digit',
-								month: '2-digit',
-								year: 'numeric',
-								hour: '2-digit',
-								minute: '2-digit'
-							})}
+							{formatDateTime(company.created_at)}
 						</td>
 						{#if twentyBaseUrl}
 							<td class="hidden lg:table-cell">
@@ -477,8 +652,8 @@
 							</td>
 						{/if}
 					</tr>
-					{@const visiblePeople = peopleWithEmail(company)}
-					{#each visiblePeople as person, pi (person.id)}
+					{#each view.people as person, pi (person.id)}
+						{@const personLast = lastSentTo(person.email)}
 						<tr
 							class="cursor-pointer hover:preset-tonal-primary text-sm"
 							onclick={() => togglePerson(company, person)}
@@ -486,7 +661,7 @@
 							<td></td>
 							<td class="min-w-64">
 								<span class="text-surface-400 font-mono mr-1">
-									{pi === visiblePeople.length - 1 ? '└─' : '├─'}
+									{pi === view.people.length - 1 ? '└─' : '├─'}
 								</span>
 								{person.name || '—'}
 							</td>
@@ -511,16 +686,12 @@
 							<td>
 								<span class="badge preset-filled-tertiary-500 text-xs">People</span>
 							</td>
-							<td class="hidden md:table-cell text-center">
-								{emailStats[person.id]?.total_sent ?? 0}
+							<td class="hidden md:table-cell text-center tabular-nums">
+								{sentTo(person.email)}
 							</td>
-							<td class="hidden md:table-cell whitespace-nowrap text-sm font-medium {getHeatColor(emailStats[person.id]?.last_sent_at)}">
-								{#if emailStats[person.id]?.last_sent_at}
-									{new Date(emailStats[person.id].last_sent_at!).toLocaleDateString('fr-FR', {
-										day: '2-digit',
-										month: '2-digit',
-										year: 'numeric'
-									})}
+							<td class="hidden md:table-cell whitespace-nowrap text-sm font-medium {getHeatColor(personLast)}">
+								{#if personLast}
+									{formatDate(personLast)}
 								{:else}
 									<span class="text-surface-400">—</span>
 								{/if}
@@ -529,13 +700,7 @@
 							<td class="hidden lg:table-cell text-surface-400">—</td>
 							<td class="hidden lg:table-cell text-sm text-surface-600-400 whitespace-nowrap">
 								{#if person.created_at}
-									{new Date(person.created_at).toLocaleDateString('fr-FR', {
-										day: '2-digit',
-										month: '2-digit',
-										year: 'numeric',
-										hour: '2-digit',
-										minute: '2-digit'
-									})}
+									{formatDateTime(person.created_at)}
 								{:else}
 									<span class="text-surface-400">—</span>
 								{/if}

@@ -1,7 +1,10 @@
 <script lang="ts">
 	import { dev } from '$app/environment';
+	import { invalidateAll, pushState, replaceState } from '$app/navigation';
+	import { page } from '$app/state';
+	import { tick } from 'svelte';
 	import CompanyTable from '$lib/emails/CompanyTable.svelte';
-	import type { SelectedRecipient } from '$lib/emails/CompanyTable.svelte';
+	import type { SelectedRecipient } from '$lib/emails/selection';
 	import TemplateSelector from '$lib/emails/TemplateSelector.svelte';
 	import SendConfirmation from '$lib/emails/SendConfirmation.svelte';
 	import { JsonView } from '@zerodevx/svelte-json-view';
@@ -10,7 +13,33 @@
 
 	let { data }: { data: PageData } = $props();
 
-	let currentStep = $state(0);
+	// The steps are shallow history entries: Next pushes one, so the browser's
+	// Back returns to the selection without a reload or a refetch. A reload
+	// drops page.state and lands on the first step, which is what we want since
+	// the selection only lives in memory.
+	let currentStep = $derived(page.state.step ?? 0);
+	let table: ReturnType<typeof CompanyTable> | undefined = $state();
+
+	let selectionScrollY = 0;
+	async function toTemplateStep() {
+		selectionScrollY = window.scrollY;
+		pushState('', { step: 1 });
+		await tick();
+		window.scrollTo(0, 0);
+	}
+
+	// Through history, so the in-page Back and the browser's agree.
+	function backToSelection() {
+		history.back();
+	}
+
+	$effect(() => {
+		if (currentStep === 0 && selectionScrollY) {
+			const y = selectionScrollY;
+			tick().then(() => window.scrollTo(0, y));
+		}
+	});
+
 	let selectedRecipients = $state<SelectedRecipient[]>([]);
 	let selectedTemplate = $state<any>(null);
 
@@ -23,13 +52,27 @@
 			selectedRecipients.map((r) => ({
 				company_name: r.company_name,
 				company_email: r.company_email,
-				company_type_id: data.companyTypes.find((ct) => ct.name === r.company_type)?.id ?? 0,
+				company_type_id: data.companyTypes.find((ct: { id: number; name: string }) => ct.name === r.company_type)?.id ?? 0,
 				twenty_crm_id: r.company_id
 			}))
 		)
 	);
 
 	let formResult = $derived(sendEmails.result);
+
+	// The page data is fetched once per visit (Twenty is slow); this re-runs the
+	// load on demand. The selection survives, it lives in this component.
+	let refreshing = $state(false);
+	async function refreshData() {
+		refreshing = true;
+		try {
+			await invalidateAll();
+		} finally {
+			refreshing = false;
+		}
+	}
+
+	let debugOpen = $state(false);
 </script>
 
 <svelte:head>
@@ -56,34 +99,55 @@
 </div>
 
 {#if dev}
-	<details class="mb-6">
+	<details class="mb-6" bind:open={debugOpen}>
 		<summary class="h4 cursor-pointer">Debug: data</summary>
-		<JsonView json={data} />
+		<!-- Rendering the whole dataset is slow; only do it when asked. -->
+		{#if debugOpen}
+			<JsonView json={data} />
+		{/if}
 	</details>
 {/if}
 
-{#if currentStep === 0}
-	<!-- Step 0: Select companies and emails -->
-	<div class="flex justify-end mb-4">
+<!-- Step 0 stays mounted while hidden, so filters, select mode and the
+     selection are all still there when coming back. -->
+<div hidden={currentStep !== 0}>
+	<div class="flex items-center justify-end gap-3 mb-4">
+		<span class="text-sm text-surface-600-400">
+			Data from {new Date(data.loadedAt).toLocaleTimeString('fr-FR', {
+				hour: '2-digit',
+				minute: '2-digit',
+				second: '2-digit'
+			})}
+		</span>
+		<button
+			type="button"
+			class="btn preset-outlined-surface-500"
+			disabled={refreshing}
+			onclick={refreshData}
+		>
+			{refreshing ? 'Refreshing…' : '↻ Refresh data'}
+		</button>
 		<button
 			class="btn preset-filled-primary-500"
 			disabled={selectedRecipients.length === 0}
-			onclick={() => (currentStep = 1)}
+			onclick={toTemplateStep}
 		>
 			Next: Choose Template →
 		</button>
 	</div>
 
 	<CompanyTable
+		bind:this={table}
 		companies={data.companies}
 		companyTypes={data.companyTypes}
 		twentyBaseUrl={data.twentyBaseUrl}
-		emailStats={data.emailStats}
+		addressStats={data.addressStats}
 		unsubscribed={data.unsubscribed}
 		bind:selectedRecipients
 	/>
+</div>
 
-{:else if currentStep === 1}
+{#if currentStep === 1}
 	<!-- Step 1: Select template -->
 	<TemplateSelector
 		templates={data.templates}
@@ -96,7 +160,10 @@
 			try {
 				await submit();
 				if (sendEmails.result?.success) {
-					currentStep = 2;
+					// Replacing the template step means Back from the confirmation
+					// returns to the selection, emptied so nothing goes out twice.
+					table?.clearSelection();
+					replaceState('', { step: 2 });
 				}
 			} catch (error) {
 				console.error(error);
@@ -107,7 +174,7 @@
 		<button
 			type="button"
 			class="btn preset-outlined-surface-500"
-			onclick={() => (currentStep = 0)}
+			onclick={backToSelection}
 		>
 			← Back
 		</button>
