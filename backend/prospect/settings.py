@@ -199,6 +199,11 @@ MAILGUN_SENDING_KEY = env('MAILGUN_SENDING_KEY', default='')
 MAILGUN_DOMAIN = env('MAILGUN_DOMAIN', default='')
 MAILGUN_FROM_EMAIL = env('MAILGUN_FROM_EMAIL', default='')
 
+# Dry run: the whole send flow runs (SentEmail rows, unsubscribe links, stats)
+# but nothing reaches Mailgun or the IMAP Sent folder. On by default whenever
+# DEBUG is, so a dev checkout holding a live Mailgun key cannot mail prospects.
+EMAIL_DRY_RUN = env.bool('EMAIL_DRY_RUN', default=DEBUG)
+
 # Twenty CRM
 TWENTY_API_URL = env('TWENTY_API_URL', default='')
 TWENTY_API_KEY = env('TWENTY_API_KEY', default='')

@@ -2,9 +2,10 @@ from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.core import signing
-from django.test import TestCase
+from django.test import TestCase, override_settings
 
 from .models import CompanyType, EmailTemplate, SentEmail, Unsubscribe
+from .services.mailgun import send_email
 from .services.renderer import ensure_unsubscribe_link
 from .services.unsubscribe import (
     build_unsubscribe_url,
@@ -252,3 +253,43 @@ class EmailStatsByAddressTests(TestCase):
             body["contact@msp.example"]["last_sent_at"][:19],
             last_success.sent_at.isoformat()[:19],
         )
+
+
+class DryRunTests(TestCase):
+    def setUp(self):
+        self.company_type = CompanyType.objects.create(name="msp", label="MSP")
+        self.template = EmailTemplate.objects.create(
+            name="T", subject_template="Bonjour", html_body="<html><body>B</body></html>"
+        )
+
+    @override_settings(EMAIL_DRY_RUN=True)
+    @patch("emails.services.imap.MailBox")
+    @patch("emails.services.mailgun.httpx.post")
+    def test_dry_run_records_a_success_without_mailgun_or_imap(self, mock_post, mock_mailbox):
+        with patch("emails.tasks.build_context") as mock_context:
+            mock_context.side_effect = lambda name, email, url: {
+                "company_name": name, "email": email,
+                "definite_article_company_name": name, "unsubscribe_url": url,
+            }
+            result = send_prospect_email(
+                template_id=self.template.id,
+                company_name="MSP Exemple",
+                company_email="ok@msp.example",
+                company_type_id=self.company_type.id,
+                twenty_crm_id="crm-1",
+            )
+
+        self.assertEqual(result["status"], "sent")
+        sent = SentEmail.objects.get()
+        self.assertTrue(sent.success)
+        self.assertTrue(sent.mailgun_message_id.startswith("<dry-run."))
+        mock_post.assert_not_called()
+        mock_mailbox.assert_not_called()
+
+    @override_settings(EMAIL_DRY_RUN=False, MAILGUN_API_URL="https://mailgun.invalid/messages")
+    @patch("emails.services.mailgun.httpx.post")
+    def test_live_mode_calls_mailgun(self, mock_post):
+        mock_post.return_value.is_success = True
+        mock_post.return_value.json.return_value = {"id": "<mg-1>"}
+        self.assertEqual(send_email("ok@msp.example", "S", "<p>B</p>")["id"], "<mg-1>")
+        mock_post.assert_called_once()

@@ -117,6 +117,8 @@ def send_emails(request, payload: SendEmailRequest):
     if blocked:
         logger.info(f"Skipped {len(blocked)} unsubscribed recipient(s)")
         message += f" Skipped {len(blocked)} unsubscribed recipient(s)."
+    if settings.EMAIL_DRY_RUN:
+        message += " Dry run: nothing actually leaves the server."
 
     return SendEmailResponse(
         queued=len(recipients),

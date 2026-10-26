@@ -6,7 +6,9 @@ from django.conf import settings
 
 
 def save_to_sent_folder(to: str, subject: str, html_body: str) -> None:
-    """Save a sent email to the IMAP Sent folder."""
+    """Save a sent email to the IMAP Sent folder (skipped in dry run)."""
+    if settings.EMAIL_DRY_RUN:
+        return
     msg = EmailMessage()
     msg["Subject"] = subject
     msg["From"] = settings.IMAP_EMAIL

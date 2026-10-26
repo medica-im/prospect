@@ -1,4 +1,5 @@
 import logging
+import uuid
 
 import httpx
 from django.conf import settings
@@ -18,6 +19,12 @@ def send_email(
     clients show their native unsubscribe control. Gmail and Yahoo require this
     of bulk senders, and it steers opt-outs away from the spam button.
     """
+    if settings.EMAIL_DRY_RUN:
+        # Shaped like Mailgun's reply; the prefix keeps these ids recognisable.
+        domain = settings.MAILGUN_DOMAIN or "dry-run.invalid"
+        logger.info(f"Dry run: not sending '{subject}' to {to}")
+        return {"id": f"<dry-run.{uuid.uuid4().hex}@{domain}>", "message": "Dry run, not sent."}
+
     data = {
         "from": settings.MAILGUN_FROM_EMAIL,
         "to": [to],
