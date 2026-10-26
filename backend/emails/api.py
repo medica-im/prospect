@@ -190,7 +190,14 @@ def preview_sent_email(request, sent_email_id: int):
     # Format date for IMAP search (DD-Mon-YYYY)
     sent_date = sent_email.sent_at.strftime("%d-%b-%Y")
 
-    html_body = fetch_email_from_sent(subject=subject, sent_date=sent_date)
+    # An unconfigured (dev) or unreachable mailbox must not break the page: the
+    # re-rendered template below is a faithful enough stand-in.
+    html_body = None
+    if settings.IMAP_SERVER:
+        try:
+            html_body = fetch_email_from_sent(subject=subject, sent_date=sent_date)
+        except Exception:
+            logger.warning("IMAP lookup failed for sent email %s", sent_email.id, exc_info=True)
 
     if html_body is None:
         # Fallback: re-render from template
