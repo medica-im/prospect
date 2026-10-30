@@ -5,6 +5,7 @@ from ninja import NinjaAPI
 
 from emails.api import router as emails_router
 from emails.unsubscribe_views import unsubscribe
+from emails.webhook_views import mailgun_webhook
 from prospect.auth_api import router as auth_router
 from prospect.health import health
 from prospect.security import session_auth
@@ -30,5 +31,7 @@ urlpatterns = [
     # already routes that prefix to Django; declared before the Ninja api so it
     # keeps its own plain-Django (non-JSON) handling.
     path('api/unsubscribe/<str:token>', unsubscribe, name='unsubscribe'),
+    # Called by Mailgun, authenticated by its payload signature, not a session.
+    path('api/webhooks/mailgun', mailgun_webhook, name='mailgun_webhook'),
     path('api/', api.urls),
 ]

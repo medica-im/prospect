@@ -48,6 +48,7 @@
 		twentyBaseUrl = '',
 		addressStats = {},
 		unsubscribed = [],
+		undeliverable = {},
 		selectedRecipients = $bindable([])
 	}: {
 		companies: Company[];
@@ -55,6 +56,8 @@
 		twentyBaseUrl?: string;
 		addressStats?: AddressStats;
 		unsubscribed?: string[];
+		/** Normalized address -> why it cannot be mailed (Mailgun bounce, refusal, complaint). */
+		undeliverable?: Record<string, string>;
 		selectedRecipients: SelectedRecipient[];
 	} = $props();
 
@@ -63,7 +66,12 @@
 	let unsubscribedSet = $derived(new Set(unsubscribed.map(normalize)));
 
 	function isUnsubscribed(email: string): boolean {
-		return unsubscribedSet.has(normalize(email));
+		return unsubscribedSet.has(normalize(email)) || normalize(email) in undeliverable;
+	}
+
+	/** Badge text: opted out, or what Mailgun reported for the address. */
+	function blockedBadge(email: string): string {
+		return unsubscribedSet.has(normalize(email)) ? 'Désabonné' : (undeliverable[normalize(email)] ?? '');
 	}
 
 	function sentTo(email: string): number {
@@ -119,11 +127,14 @@
 
 	// Per-company results are computed once per data or limit change, not on
 	// every render or sort comparison: the table has hundreds of rows.
+	// Unsubscribed and undeliverable addresses are both unselectable.
+	let blockedSet = $derived(new Set([...unsubscribedSet, ...Object.keys(undeliverable)]));
+
 	let viewById = $derived(
 		new Map(companies.map((c) => [c.id, companyView(c, addressStats, maxSent)]))
 	);
 	let recipientsById = $derived(
-		new Map(companies.map((c) => [c.id, recipientsOf(c, unsubscribedSet)]))
+		new Map(companies.map((c) => [c.id, recipientsOf(c, blockedSet)]))
 	);
 	let bulkById = $derived(
 		new Map(
@@ -218,7 +229,7 @@
 
 	// How many of the currently visible addresses are opted out.
 	let unsubscribedShown = $derived.by(() => {
-		if (unsubscribedSet.size === 0) return 0;
+		if (blockedSet.size === 0) return 0;
 		const seen = new Set<string>();
 		for (const company of filtered) {
 			for (const email of company.emails) {
@@ -482,7 +493,7 @@
 		</span>
 		{#if unsubscribedShown > 0}
 			<span class="badge preset-tonal-error text-xs">
-				{unsubscribedShown} désabonné(s) exclu(s)
+				{unsubscribedShown} désabonné(s) ou adresse(s) inexistante(s) exclu(s)
 			</span>
 		{/if}
 		{#if hiddenByLimit > 0}
@@ -588,7 +599,7 @@
 											{@render sentBadge(email)}
 											{#if isUnsubscribed(email)}
 												<span class="badge preset-filled-error-500 text-xs whitespace-nowrap">
-													Désabonné
+													{blockedBadge(email)}
 												</span>
 											{/if}
 										</label>
@@ -678,7 +689,7 @@
 									</span>
 									{#if isUnsubscribed(person.email)}
 										<span class="badge preset-filled-error-500 text-xs whitespace-nowrap">
-											Désabonné
+											{blockedBadge(person.email)}
 										</span>
 									{/if}
 								</label>

@@ -198,6 +198,12 @@ MAILGUN_SENDING_KEY_ID = env('MAILGUN_SENDING_KEY_ID', default='')
 MAILGUN_SENDING_KEY = env('MAILGUN_SENDING_KEY', default='')
 MAILGUN_DOMAIN = env('MAILGUN_DOMAIN', default='')
 MAILGUN_FROM_EMAIL = env('MAILGUN_FROM_EMAIL', default='')
+# Delivery reports. The webhook signing key is the account-level "HTTP webhook
+# signing key" (Mailgun dashboard > Webhooks); the private API key is only needed
+# by the management commands that register webhooks and backfill past events —
+# the sending key cannot read events.
+MAILGUN_WEBHOOK_SIGNING_KEY = env('MAILGUN_WEBHOOK_SIGNING_KEY', default='')
+MAILGUN_API_KEY = env('MAILGUN_API_KEY', default='')
 
 # Dry run: the whole send flow runs (SentEmail rows, unsubscribe links, stats)
 # but nothing reaches Mailgun or the IMAP Sent folder. On by default whenever

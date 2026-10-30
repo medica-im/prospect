@@ -49,15 +49,88 @@ class SentEmail(models.Model):
     )
     twenty_crm_id = models.CharField(max_length=255, help_text="Company ID from Twenty CRM")
     sent_at = models.DateTimeField(auto_now_add=True)
+    # True once Mailgun *accepted* the message. What happens to it afterwards is
+    # tracked by delivery_status, fed by Mailgun's webhooks (services/delivery.py).
     success = models.BooleanField(default=False)
-    mailgun_message_id = models.CharField(max_length=255, blank=True, default="")
+    mailgun_message_id = models.CharField(max_length=255, blank=True, default="", db_index=True)
     error_message = models.TextField(blank=True, default="")
+
+    DELIVERY_SENT = "sent"
+    DELIVERY_DELIVERED = "delivered"
+    DELIVERY_DEFERRED = "deferred"
+    DELIVERY_BOUNCED = "bounced"
+    DELIVERY_SUPPRESSED = "suppressed"
+    DELIVERY_COMPLAINED = "complained"
+    DELIVERY_CHOICES = [
+        (DELIVERY_SENT, "Accepted by Mailgun"),
+        (DELIVERY_DELIVERED, "Delivered"),
+        (DELIVERY_DEFERRED, "Delayed (temporary failure)"),
+        (DELIVERY_BOUNCED, "Bounced (permanent failure)"),
+        (DELIVERY_SUPPRESSED, "Refused (address on Mailgun suppression list)"),
+        (DELIVERY_COMPLAINED, "Reported as spam"),
+    ]
+
+    BOUNCE_MAILBOX_MISSING = "mailbox_missing"
+    BOUNCE_DOMAIN_MISSING = "domain_missing"
+    BOUNCE_MAILBOX_FULL = "mailbox_full"
+    BOUNCE_BLOCKED = "blocked"
+    BOUNCE_OTHER = "other"
+    BOUNCE_CHOICES = [
+        (BOUNCE_MAILBOX_MISSING, "Mailbox does not exist"),
+        (BOUNCE_DOMAIN_MISSING, "Domain does not exist or has no mail server"),
+        (BOUNCE_MAILBOX_FULL, "Mailbox full"),
+        (BOUNCE_BLOCKED, "Rejected by the recipient's server (policy / spam)"),
+        (BOUNCE_OTHER, "Other permanent failure"),
+    ]
+
+    delivery_status = models.CharField(
+        max_length=20, choices=DELIVERY_CHOICES, default=DELIVERY_SENT, db_index=True,
+    )
+    bounce_class = models.CharField(
+        max_length=20, choices=BOUNCE_CHOICES, blank=True, default="",
+        help_text="Why a bounced email failed. Only set when delivery_status is bounced.",
+    )
+    delivery_detail = models.TextField(
+        blank=True, default="",
+        help_text="SMTP code and message reported by the recipient's server",
+    )
+    delivery_updated_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ["-sent_at"]
 
     def __str__(self):
         return f"{self.company_name} - {self.sent_at:%Y-%m-%d %H:%M}"
+
+
+class DeliveryEvent(models.Model):
+    """One event reported by Mailgun about a SentEmail. Append-only history.
+
+    The unique `provider_event_id` makes webhook retries and backfill re-runs
+    idempotent: inserting the same event twice fails, and the caller then knows
+    to skip it.
+    """
+
+    sent_email = models.ForeignKey(
+        SentEmail, on_delete=models.CASCADE, related_name="events",
+    )
+    provider_event_id = models.CharField(max_length=255, unique=True)
+    kind = models.CharField(max_length=30, help_text="Mailgun event name: delivered, failed, complained")
+    severity = models.CharField(max_length=20, blank=True, default="", help_text="permanent or temporary")
+    smtp_code = models.CharField(max_length=10, blank=True, default="")
+    enhanced_code = models.CharField(max_length=10, blank=True, default="", help_text="e.g. 5.1.1")
+    reason = models.CharField(max_length=255, blank=True, default="")
+    detail = models.TextField(blank=True, default="")
+    recipient = models.EmailField(blank=True, default="")
+    occurred_at = models.DateTimeField()
+    received_at = models.DateTimeField(auto_now_add=True)
+    raw = models.JSONField(default=dict)
+
+    class Meta:
+        ordering = ["occurred_at", "id"]
+
+    def __str__(self):
+        return f"{self.kind} {self.recipient} ({self.occurred_at:%Y-%m-%d %H:%M})"
 
 
 class Unsubscribe(models.Model):

@@ -143,6 +143,7 @@
 		twentyBaseUrl={data.twentyBaseUrl}
 		addressStats={data.addressStats}
 		unsubscribed={data.unsubscribed}
+		undeliverable={data.undeliverable}
 		bind:selectedRecipients
 	/>
 </div>

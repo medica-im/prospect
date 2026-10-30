@@ -40,6 +40,29 @@ COUNT_WEIGHTS = {0: 35, 1: 25, 2: 15, 3: 10, 4: 6, 5: 4, 7: 3, 10: 2}
 # Share of sends that hit a transient Mailgun error and succeeded on retry.
 RETRY_RATE = 0.04
 
+# What Mailgun later reported for an address (decided once per address, so its
+# history is consistent). "hard" fates end the history: the address would be
+# blocked from then on, so it only ever has the one bounced email. The others
+# hit the address's most recent email only.
+FATE_WEIGHTS = {
+    "delivered": 90,
+    "mailbox_missing": 4,
+    "domain_missing": 1,
+    "mailbox_full": 1.5,
+    "blocked": 1,
+    "deferred": 1.5,
+    "complained": 1,
+}
+HARD_FATES = ("mailbox_missing", "domain_missing")
+FATE_DETAILS = {
+    "mailbox_missing": "550 5.1.1 The email account that you tried to reach does not exist.",
+    "domain_missing": "550 5.1.2 Host or domain name not found.",
+    "mailbox_full": "552 5.2.2 The recipient's mailbox is full.",
+    "blocked": "550 5.7.1 Message rejected as spam by the recipient's policy.",
+    "deferred": "451 4.7.1 Greylisted, please try again later.",
+    "complained": "",
+}
+
 
 class Command(BaseCommand):
     help = "Seed the dev database with fake sent-email history (dev only)."
@@ -67,7 +90,7 @@ class Command(BaseCommand):
         # auto_now_add stamped them all "now"; put the intended dates back.
         for se, (_, when) in zip(created, rows):
             se.sent_at = when
-        SentEmail.objects.bulk_update(created, ["sent_at"], batch_size=500)
+        SentEmail.objects.bulk_update(created, ["sent_at", "delivery_updated_at"], batch_size=500)
 
         succeeded = sum(1 for se in created if se.success)
         self.stdout.write(
@@ -99,6 +122,7 @@ class Command(BaseCommand):
 
             for crm_id, email in self._recipients(company):
                 n = rng.choices(list(COUNT_WEIGHTS), weights=list(COUNT_WEIGHTS.values()))[0]
+                fate = rng.choices(list(FATE_WEIGHTS), weights=list(FATE_WEIGHTS.values()))[0]
                 waves = campaigns
                 unsub_at = unsubscribed.get(email.lower())
                 if unsub_at:
@@ -123,16 +147,22 @@ class Command(BaseCommand):
                     rows.append((self._row(base, success=False, error=str(exc)), when))
                     continue
 
-                for wave in sorted(rng.sample(waves, min(n, len(waves)))):
+                chosen = sorted(rng.sample(waves, min(n, len(waves))))
+                if fate in HARD_FATES:
+                    chosen = chosen[:1]
+                for index, wave in enumerate(chosen):
                     when = wave + timedelta(seconds=rng.randint(0, 3600))
+                    is_last = index == len(chosen) - 1
+                    outcome = fate if is_last else "delivered"
                     if rng.random() < RETRY_RATE:
                         # A transient Mailgun error, then the Celery retry 60 s later.
                         rows.append(
                             (self._row(base, success=False, error="503 Service Unavailable"), when)
                         )
                         when += timedelta(seconds=60)
-                    rows.append((self._row(base, success=True), when))
-                    per_address[email.lower()] += 1
+                    rows.append((self._row(base, success=True, outcome=outcome, when=when), when))
+                    if fate not in HARD_FATES:
+                        per_address[email.lower()] += 1
         return rows, per_address
 
     @staticmethod
@@ -147,13 +177,27 @@ class Command(BaseCommand):
                 yield crm_id, email
 
     @staticmethod
-    def _row(base, success, error=""):
+    def _row(base, success, error="", outcome="delivered", when=None):
         # Failed rows carry the marker too, so --clear and reruns catch them.
         domain = settings.MAILGUN_DOMAIN or "dry-run.invalid"
         kind = "" if success else "failed-"
+        delivery = {}
+        if success:
+            status, bounce_class = {
+                "delivered": (SentEmail.DELIVERY_DELIVERED, ""),
+                "deferred": (SentEmail.DELIVERY_DEFERRED, ""),
+                "complained": (SentEmail.DELIVERY_COMPLAINED, ""),
+            }.get(outcome, (SentEmail.DELIVERY_BOUNCED, outcome))
+            delivery = dict(
+                delivery_status=status,
+                bounce_class=bounce_class,
+                delivery_detail=FATE_DETAILS.get(outcome, ""),
+                delivery_updated_at=when + timedelta(seconds=30),
+            )
         return SentEmail(
             **base,
             success=success,
             error_message=error,
             mailgun_message_id=f"{SEED_PREFIX}{kind}{uuid.uuid4().hex}@{domain}>",
+            **delivery,
         )

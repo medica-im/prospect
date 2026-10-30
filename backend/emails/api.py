@@ -1,8 +1,10 @@
+import csv
 import logging
 
 from django.conf import settings
-from django.db.models import Count, Max
+from django.db.models import Count, Max, Q
 from django.db.models.functions import Lower
+from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
 from ninja import Router
 
@@ -11,13 +13,16 @@ from .schemas import (
     CompanyEmailStats,
     CompanyOut,
     CompanyTypeOut,
+    DeliveryEventOut,
     EmailTemplateOut,
+    ProblemAddressOut,
     SendEmailRequest,
     SendEmailResponse,
     SentEmailOut,
     SentEmailPreview,
     UnsubscribeOut,
 )
+from .services.delivery import problem_addresses
 from .services.twenty_crm import fetch_companies
 from .services.imap import fetch_email_from_sent
 from webprospects.french import UnknownArticleError
@@ -39,10 +44,20 @@ def list_company_types(request):
 
 # --- Email Stats per Company ---
 
+def _reached():
+    """Emails Mailgun accepted and that were not refused or bounced afterwards."""
+    return SentEmail.objects.filter(success=True).exclude(
+        delivery_status__in=[SentEmail.DELIVERY_BOUNCED, SentEmail.DELIVERY_SUPPRESSED],
+    )
+
+
 @router.get("/email-stats", response=dict[str, CompanyEmailStats])
 def email_stats(request):
-    """Return sent email count and last sent date per company (by twenty_crm_id)."""
-    stats = SentEmail.objects.filter(success=True).values("twenty_crm_id").annotate(
+    """Return sent email count and last sent date per company (by twenty_crm_id).
+
+    Emails that bounced never reached anyone, so they do not count as sent.
+    """
+    stats = _reached().values("twenty_crm_id").annotate(
         total_sent=Count("id"),
         last_sent_at=Max("sent_at"),
     )
@@ -63,7 +78,7 @@ def email_stats_by_address(request):
     is what lets the send page filter on how often one inbox was contacted.
     """
     stats = (
-        SentEmail.objects.filter(success=True)
+        _reached()
         .annotate(address=Lower("company_email"))
         .values("address")
         .annotate(total_sent=Count("id"), last_sent_at=Max("sent_at"))
@@ -115,8 +130,8 @@ def send_emails(request, payload: SendEmailRequest):
 
     message = f"Queued {len(recipients)} email(s) for sending."
     if blocked:
-        logger.info(f"Skipped {len(blocked)} unsubscribed recipient(s)")
-        message += f" Skipped {len(blocked)} unsubscribed recipient(s)."
+        logger.info(f"Skipped {len(blocked)} unsubscribed or undeliverable recipient(s)")
+        message += f" Skipped {len(blocked)} unsubscribed or undeliverable recipient(s)."
     if settings.EMAIL_DRY_RUN:
         message += " Dry run: nothing actually leaves the server."
 
@@ -143,14 +158,30 @@ def list_sent_emails(
     request,
     company_type_id: int | None = None,
     success: bool | None = None,
+    delivery: str | None = None,
 ):
-    """List sent emails with optional filters."""
+    """List sent emails with optional filters.
+
+    `delivery` is a delivery status (delivered, bounced, ...), a bounce class
+    (mailbox_missing, ...), or "problem" for everything that needs a look: a
+    failed send, a bounce, a refusal or a spam complaint.
+    """
     qs = SentEmail.objects.select_related("template", "company_type").all()
 
     if company_type_id is not None:
         qs = qs.filter(company_type_id=company_type_id)
     if success is not None:
         qs = qs.filter(success=success)
+    if delivery == "problem":
+        qs = qs.filter(
+            Q(success=False) | Q(delivery_status__in=[
+                SentEmail.DELIVERY_BOUNCED,
+                SentEmail.DELIVERY_SUPPRESSED,
+                SentEmail.DELIVERY_COMPLAINED,
+            ])
+        )
+    elif delivery:
+        qs = qs.filter(Q(delivery_status=delivery) | Q(bounce_class=delivery))
 
     results = []
     for email in qs:
@@ -164,8 +195,51 @@ def list_sent_emails(
             success=email.success,
             mailgun_message_id=email.mailgun_message_id,
             error_message=email.error_message,
+            delivery_status=email.delivery_status,
+            bounce_class=email.bounce_class,
+            delivery_detail=email.delivery_detail,
+            delivery_updated_at=email.delivery_updated_at,
         ))
     return results
+
+
+# --- Problem addresses (to fix in the CRM) ---
+
+CSV_COLUMNS = [
+    ("address", "address"),
+    ("company_name", "company"),
+    ("twenty_crm_id", "twenty_id"),
+    ("delivery_status", "status"),
+    ("bounce_class", "problem"),
+    ("delivery_detail", "smtp_detail"),
+    ("last_event_at", "date"),
+    ("emails_sent", "emails_sent"),
+]
+
+
+@router.get("/emails/problem-addresses", response=list[ProblemAddressOut])
+def list_problem_addresses(request, all: bool = False):
+    """Addresses to fix in the CRM: mailbox/domain does not exist, refused, or spam complaint.
+
+    all=true adds the merely troublesome ones (full mailbox, policy block, ...).
+    """
+    return problem_addresses(dead_only=not all)
+
+
+@router.get("/emails/problem-addresses.csv")
+def export_problem_addresses(request, all: bool = False):
+    """Same list as a CSV download. BOM-prefixed so Excel reads accents correctly."""
+    response = HttpResponse(content_type="text/csv; charset=utf-8")
+    response["Content-Disposition"] = 'attachment; filename="adresses-a-corriger.csv"'
+    response.write("﻿")
+    writer = csv.writer(response)
+    writer.writerow([header for _, header in CSV_COLUMNS])
+    for row in problem_addresses(dead_only=not all):
+        writer.writerow([
+            row[key].isoformat() if key == "last_event_at" and row[key] else row[key]
+            for key, _ in CSV_COLUMNS
+        ])
+    return response
 
 
 # --- Sent Email Preview from IMAP ---
@@ -211,4 +285,11 @@ def preview_sent_email(request, sent_email_id: int):
         mailgun_message_id=sent_email.mailgun_message_id,
         from_email=settings.MAILGUN_FROM_EMAIL,
         to_email=sent_email.company_email,
+        success=sent_email.success,
+        error_message=sent_email.error_message,
+        delivery_status=sent_email.delivery_status,
+        bounce_class=sent_email.bounce_class,
+        delivery_detail=sent_email.delivery_detail,
+        delivery_updated_at=sent_email.delivery_updated_at,
+        events=[DeliveryEventOut.from_orm(event) for event in sent_email.events.all()],
     )

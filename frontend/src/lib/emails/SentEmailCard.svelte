@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
+	import { TONE_CLASS, deliveryLook } from './delivery';
 
 	type SentEmail = {
 		id: number;
@@ -11,12 +12,22 @@
 		success: boolean;
 		mailgun_message_id: string;
 		error_message: string;
+		delivery_status: string;
+		bounce_class: string;
+		delivery_detail: string;
 	};
 
 	let {
 		sentEmail,
 		unsubscribed = false
 	}: { sentEmail: SentEmail; unsubscribed?: boolean } = $props();
+
+	let look = $derived(deliveryLook(sentEmail));
+	let statusTitle = $derived(
+		[look.explanation, sentEmail.delivery_detail, sentEmail.error_message]
+			.filter(Boolean)
+			.join('\n')
+	);
 
 	let formattedDate = $derived(
 		new Date(sentEmail.sent_at).toLocaleDateString('fr-FR', {
@@ -32,7 +43,7 @@
 
 <a
 	href={resolve(`/emails/sent/${sentEmail.id}`)}
-	class="card p-4 flex flex-col lg:grid lg:grid-cols-[140px_1fr_1fr_100px_80px] gap-2 lg:gap-4 items-center hover:preset-tonal-primary transition-colors no-underline"
+	class="card p-4 flex flex-col lg:grid lg:grid-cols-[140px_1fr_1fr_100px_170px] gap-2 lg:gap-4 items-center hover:preset-tonal-primary transition-colors no-underline"
 >
 	<span class="text-sm text-surface-600-400">{formattedDate}</span>
 	<span class="font-medium truncate">{sentEmail.company_name}</span>
@@ -48,10 +59,8 @@
 		{/if}
 	</span>
 	<span>
-		{#if sentEmail.success}
-			<span class="badge preset-filled-success-500 text-xs">Sent</span>
-		{:else}
-			<span class="badge preset-filled-error-500 text-xs">Failed</span>
-		{/if}
+		<span class="badge {TONE_CLASS[look.tone]} text-xs whitespace-nowrap" title={statusTitle}>
+			{look.label}
+		</span>
 	</span>
 </a>

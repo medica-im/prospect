@@ -1,11 +1,18 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	import SentEmailCard from '$lib/emails/SentEmailCard.svelte';
+	import {
+		FILTER_OPTIONS,
+		countByFilter,
+		matchesFilter,
+		type DeliveryFilter
+	} from '$lib/emails/delivery';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
 
 	let search = $state('');
-	let statusFilter = $state('');
+	let statusFilter = $state<DeliveryFilter>('');
 
 	let unsubscribedSet = $derived(
 		new Set((data.unsubscribed ?? []).map((e: string) => e.trim().toLowerCase()))
@@ -21,13 +28,11 @@
 					e.company_email.toLowerCase().includes(q)
 			);
 		}
-		if (statusFilter === 'success') {
-			result = result.filter((e: any) => e.success);
-		} else if (statusFilter === 'failed') {
-			result = result.filter((e: any) => !e.success);
-		}
-		return result;
+		return result.filter((e: any) => matchesFilter(e, statusFilter));
 	});
+
+	let counts = $derived(countByFilter(data.sentEmails));
+	let deadCount = $derived(counts.dead);
 </script>
 
 <svelte:head>
@@ -45,15 +50,33 @@
 		class="input flex-1"
 		bind:value={search}
 	/>
-	<select class="select w-40" bind:value={statusFilter}>
-		<option value="">All status</option>
-		<option value="success">Sent</option>
-		<option value="failed">Failed</option>
+	<select class="select sm:w-64" bind:value={statusFilter}>
+		{#each FILTER_OPTIONS as option (option.value)}
+			<option value={option.value}>{option.label} ({counts[option.value]})</option>
+		{/each}
 	</select>
 </div>
 
+{#if counts.problem > 0}
+	<div class="card preset-tonal-warning p-4 mb-6 flex flex-wrap items-center gap-3" role="status">
+		<span class="flex-1 min-w-60">
+			<strong>{counts.problem}</strong> email(s) à vérifier
+			{#if deadCount > 0}
+				dont <strong>{deadCount}</strong> à une adresse inexistante, à corriger dans le CRM.
+			{/if}
+		</span>
+		<button type="button" class="btn preset-outlined-warning-500" onclick={() => (statusFilter = 'problem')}>
+			Voir
+		</button>
+		<!-- A plain link: the browser downloads the file the proxy route streams back. -->
+		<a class="btn preset-filled-primary-500" href={resolve('/emails/sent/problem-addresses.csv')} download>
+			Télécharger les adresses à corriger (CSV)
+		</a>
+	</div>
+{/if}
+
 <!-- Column headers (desktop) -->
-<div class="hidden lg:grid lg:grid-cols-[140px_1fr_1fr_100px_80px] gap-4 px-4 pb-2 text-sm font-bold text-surface-500">
+<div class="hidden lg:grid lg:grid-cols-[140px_1fr_1fr_100px_170px] gap-4 px-4 pb-2 text-sm font-bold text-surface-500">
 	<span>Date</span>
 	<span>Company</span>
 	<span>Email</span>

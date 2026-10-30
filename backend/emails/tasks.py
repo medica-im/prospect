@@ -8,7 +8,8 @@ from .models import EmailTemplate, SentEmail, CompanyType
 from .services.mailgun import send_email
 from .services.imap import save_to_sent_folder
 from .services.renderer import build_context, ensure_unsubscribe_link, render_template
-from .services.unsubscribe import build_unsubscribe_url, is_unsubscribed
+from .services.delivery import undeliverable_addresses
+from .services.unsubscribe import build_unsubscribe_url, is_unsubscribed, normalize
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +32,12 @@ def send_prospect_email(
     if is_unsubscribed(company_email):
         logger.info(f"Skipping email to {company_email}: recipient unsubscribed")
         return {"status": "skipped", "reason": "unsubscribed"}
+
+    # Same idea for addresses Mailgun reported as non-existent or that complained:
+    # mailing them again only hurts the sender reputation.
+    if normalize(company_email) in undeliverable_addresses():
+        logger.info(f"Skipping email to {company_email}: address is undeliverable")
+        return {"status": "skipped", "reason": "undeliverable"}
 
     # Created before rendering so the unsubscribe token can reference this exact
     # send — that is how we know which email triggered an opt-out.
@@ -66,6 +73,7 @@ def send_prospect_email(
             subject=subject,
             html_body=html_body,
             unsubscribe_url=unsubscribe_url,
+            sent_email_id=sent_email.id,
         )
         mailgun_message_id = result.get("id", "")
 

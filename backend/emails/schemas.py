@@ -73,6 +73,33 @@ class SentEmailOut(Schema):
     success: bool
     mailgun_message_id: str
     error_message: str
+    delivery_status: str
+    bounce_class: str
+    delivery_detail: str
+    delivery_updated_at: datetime | None = None
+
+
+class ProblemAddressOut(Schema):
+    """An address whose last conclusive delivery result is a problem."""
+
+    address: str
+    company_name: str
+    twenty_crm_id: str
+    delivery_status: str
+    bounce_class: str
+    delivery_detail: str
+    last_event_at: datetime | None = None
+    emails_sent: int
+
+
+class DeliveryEventOut(Schema):
+    kind: str
+    severity: str
+    smtp_code: str
+    enhanced_code: str
+    reason: str
+    detail: str
+    occurred_at: datetime
 
 
 class CompanyEmailStats(Schema):
@@ -98,3 +125,10 @@ class SentEmailPreview(Schema):
     mailgun_message_id: str
     from_email: str
     to_email: str
+    success: bool
+    error_message: str
+    delivery_status: str
+    bounce_class: str
+    delivery_detail: str
+    delivery_updated_at: datetime | None = None
+    events: list[DeliveryEventOut] = []
