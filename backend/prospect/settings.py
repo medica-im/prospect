@@ -114,6 +114,9 @@ AXES_COOLOFF_TIME = timedelta(minutes=15)
 # By username only: every app login reaches Django from the SvelteKit
 # container, so locking by IP would lock out everyone at once.
 AXES_LOCKOUT_PARAMETERS = ['username']
+# W006 asks for 'ip_address' too. Not done on purpose, for the reason above:
+# the lock would hit the SvelteKit container and so every operator at once.
+SILENCED_SYSTEM_CHECKS = ['axes.W006']
 AXES_RESET_ON_SUCCESS = True
 # The default restarts the cool-off on every attempt made during it, which lets
 # an attacker keep the real user locked out indefinitely.
