@@ -64,6 +64,9 @@ export function deliveryLook(email: DeliveryFields): DeliveryLook {
 					'Le destinataire a signalé ce message comme indésirable. Ne plus écrire à cette adresse.'
 			};
 		case 'suppressed':
+			// From /emails/problem-addresses the original bounce reason is carried over
+			// a later refusal; name that rather than the refusal itself.
+			if (email.bounce_class) return bouncedLook(email.bounce_class);
 			return {
 				label: 'Refusé (liste d’exclusion)',
 				tone: 'error',

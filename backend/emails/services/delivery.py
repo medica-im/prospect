@@ -351,13 +351,28 @@ def problem_addresses(dead_only: bool = True) -> list[dict]:
         attempts = SentEmail.objects.filter(
             success=True, company_email__iexact=address,
         ).count()
+        bounce_class, detail = row.bounce_class, row.delivery_detail
+        if row.delivery_status == SentEmail.DELIVERY_SUPPRESSED:
+            # After the first bounce Mailgun refuses every later email, and those
+            # refusals become the latest result. They say nothing about why the
+            # address is dead; the original bounce does.
+            original = (
+                SentEmail.objects.filter(
+                    success=True, company_email__iexact=address,
+                    delivery_status=SentEmail.DELIVERY_BOUNCED,
+                )
+                .order_by("-sent_at")
+                .first()
+            )
+            if original:
+                bounce_class, detail = original.bounce_class, original.delivery_detail
         rows.append({
             "address": address,
             "company_name": row.company_name,
             "twenty_crm_id": row.twenty_crm_id,
             "delivery_status": row.delivery_status,
-            "bounce_class": row.bounce_class,
-            "delivery_detail": row.delivery_detail,
+            "bounce_class": bounce_class,
+            "delivery_detail": detail,
             "last_event_at": row.delivery_updated_at,
             "emails_sent": attempts,
         })

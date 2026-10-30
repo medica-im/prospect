@@ -37,13 +37,13 @@ class Command(BaseCommand):
 
     def handle(self, *args, days=30, skip_lists=False, skip_events=False, **options):
         domain = settings.MAILGUN_DOMAIN
-        counts = {"applied": 0, "duplicate": 0, "unmatched": 0}
+        counts = {"applied": 0, "duplicate": 0, "unmatched": 0, "inferred": 0}
         try:
             with client() as http:
                 if not skip_lists:
                     for kind, path in (("bounce", "bounces"), ("complaint", "complaints")):
                         for item in paginate(http, f"/v3/{domain}/{path}", {"limit": 1000}):
-                            self._tally(counts, self._apply_list_item(kind, item))
+                            self._tally(counts, self._apply_list_item(kind, item, counts))
                 if not skip_events:
                     since = datetime.now(tz=timezone.utc) - timedelta(days=days)
                     params = {
@@ -61,19 +61,24 @@ class Command(BaseCommand):
 
         self.stdout.write(
             f"Applied {counts['applied']}, already known {counts['duplicate']}, "
-            f"not ours/unmatched {counts['unmatched']}."
+            f"not ours/unmatched {counts['unmatched']}, "
+            f"inferred refused {counts['inferred']}."
         )
 
     @staticmethod
     def _tally(counts, result):
         counts[result] += 1
 
-    def _apply_list_item(self, kind: str, item: dict) -> str:
+    def _apply_list_item(self, kind: str, item: dict, counts: dict) -> str:
         address = normalize(item.get("address", ""))
         try:
             created = parsedate_to_datetime(item["created_at"])
         except (KeyError, TypeError, ValueError):
             created = datetime.now(tz=timezone.utc)
+
+        # Independent of whether the entry itself matches one of our emails: we may
+        # only have mailed the address after another app got it listed.
+        counts["inferred"] += self._infer_refused(kind, address, created)
 
         # The list holds only the address, so find our latest email to it that the
         # bounce can be about. Never an email sent after the bounce was recorded.
@@ -105,3 +110,40 @@ class Command(BaseCommand):
             })
         event.message_id = normalize_message_id(sent_email.mailgun_message_id)
         return apply_event(event, sent_email=sent_email)
+
+    @staticmethod
+    def _infer_refused(kind: str, address: str, listed_at: datetime) -> int:
+        """Mark our later emails to a listed address as refused. Returns how many.
+
+        Mailgun stops delivering to an address once it is on its bounce or
+        complaint list, so every email sent after that date was refused. The
+        Events API only remembers about 30 days, so for older ones nothing says
+        so and they would stay "sent" and keep counting as received. Only emails
+        with no outcome yet are touched: an observed status is never overridden.
+        The event id is per email, so re-runs change nothing.
+        """
+        reason = "suppress-complaint" if kind == "complaint" else "suppress-bounce"
+        detail = (
+            f"Déduit : adresse sur la liste d'exclusion Mailgun "
+            f"({'plainte' if kind == 'complaint' else 'rebond'}) depuis le {listed_at:%Y-%m-%d}"
+        )
+        later = SentEmail.objects.filter(
+            success=True,
+            company_email__iexact=address,
+            sent_at__gt=listed_at,
+            delivery_status=SentEmail.DELIVERY_SENT,
+        )
+        inferred = 0
+        for sent_email in later:
+            event = parse_event({
+                "id": f"list-refused:{address}:{sent_email.id}",
+                "event": "failed",
+                "severity": "permanent",
+                "reason": reason,
+                "recipient": address,
+                "timestamp": sent_email.sent_at.timestamp(),
+                "delivery-status": {"message": detail},
+            })
+            if apply_event(event, sent_email=sent_email) == "applied":
+                inferred += 1
+        return inferred

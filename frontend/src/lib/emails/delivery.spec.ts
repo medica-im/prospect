@@ -55,6 +55,13 @@ describe('deliveryLook', () => {
 	});
 });
 
+describe('refused addresses from the problem list', () => {
+	it('name the original bounce, not the refusal', () => {
+		expect(deliveryLook(email('suppressed', 'mailbox_missing')).label).toBe('Boîte inexistante');
+		expect(deliveryLook(email('suppressed')).label).toBe('Refusé (liste d’exclusion)');
+	});
+});
+
 describe('filters', () => {
 	it('dead is exactly the addresses to fix in the CRM', () => {
 		expect(all.filter((e) => matchesFilter(e, 'dead'))).toEqual([missing, noDomain]);

@@ -358,6 +358,27 @@ class SeedSentHistoryTests(TestCase):
         self.assertFalse(self.seeded().exists())
         self.assertTrue(SentEmail.objects.filter(pk=self.real.pk).exists())
 
+    @override_settings(DEBUG=True, EMAIL_DRY_RUN=True)
+    def test_printed_distribution_matches_what_the_stats_count(self, mock_fetch, _ctx):
+        """Seeded bounces must not count in the seed's own summary either."""
+        import ast
+        import collections
+
+        from django.db.models.functions import Lower
+
+        from .api import _reached
+
+        mock_fetch.return_value = self.COMPANIES
+        for seed in range(6):
+            out = StringIO()
+            call_command("seed_sent_history", "--seed", str(seed), stdout=out)
+            printed = ast.literal_eval(out.getvalue().split("received:")[1].strip())
+            per_address = collections.Counter(
+                _reached().filter(mailgun_message_id__startswith="<dry-run.seed-")
+                .annotate(a=Lower("company_email")).values_list("a", flat=True)
+            )
+            self.assertEqual(printed, dict(collections.Counter(per_address.values())), f"seed {seed}")
+
     @override_settings(DEBUG=False, EMAIL_DRY_RUN=False)
     def test_refuses_outside_dev(self, mock_fetch, _ctx):
         with self.assertRaises(CommandError):
@@ -862,3 +883,147 @@ class SendDeliveryTestCommandTests(TestCase):
         mock_post.assert_not_called()
         self.assertEqual(send_email("a@medica.im", "S", "B", dry_run=False)["id"], "<live>")
         mock_post.assert_called_once()
+
+
+# --- Rejected emails do not count as received --------------------------------
+
+from datetime import datetime, timedelta, timezone as dt_timezone
+
+from django.utils import timezone
+
+
+class ReceivedCountTests(TestCase):
+    """What /emails/send shows as 'emails received' per address."""
+
+    def setUp(self):
+        self.client.force_login(get_user_model().objects.create_user("operator"))
+        self.now = timezone.now()
+
+    def make(self, status, days_ago, success=True, email="a@x.example", crm="crm-1", **kwargs):
+        row = SentEmail.objects.create(
+            company_name="MSP", company_email=email, twenty_crm_id=crm,
+            success=success, delivery_status=status, **kwargs,
+        )
+        SentEmail.objects.filter(pk=row.pk).update(sent_at=self.now - timedelta(days=days_ago))
+        row.refresh_from_db()
+        return row
+
+    def stats(self, url="/api/email-stats/by-address", key="a@x.example"):
+        return self.client.get(url).json().get(key)
+
+    def test_only_emails_that_reached_the_recipient_count(self):
+        for status in ("sent", "delivered", "deferred", "complained"):
+            self.make(status, 10)
+        self.make("bounced", 9, bounce_class="mailbox_missing")
+        self.make("suppressed", 8)
+        self.make("sent", 7, success=False)
+        self.assertEqual(self.stats()["total_sent"], 4)
+        self.assertEqual(self.stats("/api/email-stats", "crm-1")["total_sent"], 4)
+
+    def test_last_sent_date_ignores_rejected_emails(self):
+        counted = self.make("delivered", 30)
+        self.make("suppressed", 5)
+        self.make("bounced", 2, bounce_class="mailbox_full")
+        last = self.stats()["last_sent_at"][:19]
+        self.assertEqual(last, counted.sent_at.isoformat()[:19])
+
+    def test_an_address_where_everything_was_rejected_has_no_entry(self):
+        self.make("bounced", 3, bounce_class="mailbox_missing")
+        self.make("suppressed", 1)
+        self.assertIsNone(self.stats())
+
+
+@override_settings(MAILGUN_DOMAIN="mail.example", MAILGUN_API_KEY="k", MAILGUN_API_URL="https://api.eu.mailgun.net/v3/mail.example/messages")
+class InferredRefusalTests(TestCase):
+    LISTED = "Tue, 01 Jan 2030 10:00:00 UTC"
+
+    def setUp(self):
+        self.listed_at = datetime(2030, 1, 1, 10, 0, tzinfo=dt_timezone.utc)
+        self.before = self.make(-40)
+        self.after_old = self.make(+20)
+        self.after_older = self.make(+90)
+        self.observed = self.make(+30, delivery_status=SentEmail.DELIVERY_DELIVERED)
+        self.other = self.make(+20, email="other@x.example")
+
+    def make(self, days_from_listing, email="dead@x.example", **kwargs):
+        row = SentEmail.objects.create(
+            company_name="MSP", company_email=email, twenty_crm_id="crm-1", success=True,
+            mailgun_message_id=f"<{email}-{days_from_listing}@mail.example>", **kwargs,
+        )
+        SentEmail.objects.filter(pk=row.pk).update(
+            sent_at=self.listed_at + timedelta(days=days_from_listing)
+        )
+        row.refresh_from_db()
+        return row
+
+    def backfill(self, bounces=(), complaints=()):
+        pages = {"bounces": list(bounces), "complaints": list(complaints)}
+
+        def fake_paginate(http, url, params=None):
+            return iter(pages.get(url.rsplit("/", 1)[1], []))
+
+        with patch("emails.management.commands.backfill_mailgun_events.paginate", fake_paginate):
+            out = StringIO()
+            call_command("backfill_mailgun_events", "--skip-events", stdout=out)
+        return out.getvalue()
+
+    def bounce_item(self, address="dead@x.example"):
+        return {
+            "address": address, "code": "550", "created_at": self.LISTED,
+            "error": "550 5.1.1 The email account does not exist",
+        }
+
+    def status(self, row):
+        row.refresh_from_db()
+        return row.delivery_status
+
+    def test_later_emails_to_a_bounced_address_become_refused_and_stop_counting(self):
+        self.client.force_login(get_user_model().objects.create_user("operator"))
+        out = self.backfill(bounces=[self.bounce_item()])
+
+        self.assertEqual(self.status(self.before), SentEmail.DELIVERY_BOUNCED)
+        self.assertEqual(self.before.bounce_class, SentEmail.BOUNCE_MAILBOX_MISSING)
+        self.assertEqual(self.status(self.after_old), SentEmail.DELIVERY_SUPPRESSED)
+        self.assertEqual(self.status(self.after_older), SentEmail.DELIVERY_SUPPRESSED)
+        self.assertIn("Déduit", self.after_old.delivery_detail)
+        self.assertIn("inferred refused 2", out)
+
+        # An outcome we actually observed is never overridden.
+        self.assertEqual(self.status(self.observed), SentEmail.DELIVERY_DELIVERED)
+        # Other addresses are untouched.
+        self.assertEqual(self.status(self.other), SentEmail.DELIVERY_SENT)
+
+        stats = self.client.get("/api/email-stats/by-address").json()
+        self.assertEqual(stats["dead@x.example"]["total_sent"], 1)  # only the delivered one
+        self.assertEqual(stats["other@x.example"]["total_sent"], 1)
+
+    def test_rerunning_changes_nothing(self):
+        self.backfill(bounces=[self.bounce_item()])
+        events = DeliveryEvent.objects.count()
+        out = self.backfill(bounces=[self.bounce_item()])
+        self.assertIn("inferred refused 0", out)
+        self.assertEqual(DeliveryEvent.objects.count(), events)
+
+    def test_complaints_refuse_later_emails_too(self):
+        item = {"address": "dead@x.example", "created_at": self.LISTED}
+        self.backfill(complaints=[item])
+        self.assertEqual(self.status(self.before), SentEmail.DELIVERY_COMPLAINED)
+        self.assertEqual(self.status(self.after_old), SentEmail.DELIVERY_SUPPRESSED)
+        self.assertIn("plainte", self.after_old.delivery_detail)
+
+    def test_emails_are_refused_even_when_none_was_sent_before_the_listing(self):
+        """Another app got the address listed; we only mailed it afterwards."""
+        SentEmail.objects.filter(pk=self.before.pk).delete()
+        self.backfill(bounces=[self.bounce_item()])
+        self.assertEqual(self.status(self.after_old), SentEmail.DELIVERY_SUPPRESSED)
+
+    def test_the_csv_keeps_the_original_reason_after_later_refusals(self):
+        self.client.force_login(get_user_model().objects.create_user("operator"))
+        self.backfill(bounces=[self.bounce_item()])
+        rows = self.client.get("/api/emails/problem-addresses").json()
+        self.assertEqual([r["address"] for r in rows], ["dead@x.example"])
+        self.assertEqual(rows[0]["delivery_status"], "suppressed")
+        self.assertEqual(rows[0]["bounce_class"], "mailbox_missing")
+        self.assertIn("5.1.1", rows[0]["delivery_detail"])
+        csv_text = self.client.get("/api/emails/problem-addresses.csv").content.decode("utf-8-sig")
+        self.assertIn("mailbox_missing", csv_text)

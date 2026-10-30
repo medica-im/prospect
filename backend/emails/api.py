@@ -45,7 +45,12 @@ def list_company_types(request):
 # --- Email Stats per Company ---
 
 def _reached():
-    """Emails Mailgun accepted and that were not refused or bounced afterwards."""
+    """The emails that count as received when choosing recipients.
+
+    Counted: sent (no news yet), delivered, deferred (Mailgun is still retrying;
+    a final failure turns it into a bounce) and complained (it was delivered).
+    Not counted: sends Mailgun refused (success=False), bounced and suppressed.
+    """
     return SentEmail.objects.filter(success=True).exclude(
         delivery_status__in=[SentEmail.DELIVERY_BOUNCED, SentEmail.DELIVERY_SUPPRESSED],
     )

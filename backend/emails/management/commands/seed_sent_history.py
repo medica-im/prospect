@@ -54,6 +54,8 @@ FATE_WEIGHTS = {
     "complained": 1,
 }
 HARD_FATES = ("mailbox_missing", "domain_missing")
+# The outcomes /api/email-stats counts as received (a bounce never reached anyone).
+COUNTED_OUTCOMES = ("delivered", "deferred", "complained")
 FATE_DETAILS = {
     "mailbox_missing": "550 5.1.1 The email account that you tried to reach does not exist.",
     "domain_missing": "550 5.1.2 Host or domain name not found.",
@@ -161,7 +163,7 @@ class Command(BaseCommand):
                         )
                         when += timedelta(seconds=60)
                     rows.append((self._row(base, success=True, outcome=outcome, when=when), when))
-                    if fate not in HARD_FATES:
+                    if outcome in COUNTED_OUTCOMES:
                         per_address[email.lower()] += 1
         return rows, per_address
 
