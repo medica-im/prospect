@@ -52,6 +52,9 @@ class SendEmailRecipient(Schema):
 class SendEmailRequest(Schema):
     template_id: int
     recipients: list[SendEmailRecipient]
+    # Wall-clock time in `timezone`, naive ISO "YYYY-MM-DDTHH:MM". Unset = send now.
+    scheduled_for: str | None = None
+    timezone: str = "Europe/Paris"
 
 
 class SendEmailResponse(Schema):
@@ -59,6 +62,19 @@ class SendEmailResponse(Schema):
     message: str
     skipped: int = 0
     skipped_emails: list[str] = []
+    scheduled_at: datetime | None = None
+
+
+class ScheduledBatchOut(Schema):
+    id: int
+    template_name: str | None = None
+    scheduled_at: datetime
+    timezone: str
+    status: str
+    recipient_count: int
+    queued: int
+    skipped: int
+    created_at: datetime
 
 
 # --- Sent Emails ---

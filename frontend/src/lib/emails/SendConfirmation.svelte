@@ -7,20 +7,24 @@
 		success,
 		message,
 		skipped = 0,
-		skippedEmails = []
+		skippedEmails = [],
+		scheduled = false
 	}: {
 		success: boolean;
 		message: string;
 		skipped?: number;
 		skippedEmails?: string[];
+		scheduled?: boolean;
 	} = $props();
+
+	let next = $derived(scheduled ? resolve('/emails/scheduled') : resolve('/emails/sent'));
 
 	onMount(() => {
 		// Skipped recipients are worth reading, so hold the page instead of
 		// bouncing straight to the sent list.
 		if (success && skipped === 0) {
 			const timeout = setTimeout(() => {
-				goto(resolve('/emails/sent'));
+				goto(next);
 			}, 2000);
 			return () => clearTimeout(timeout);
 		}
@@ -43,11 +47,13 @@
 					{/each}
 				</ul>
 			</div>
-			<a href={resolve('/emails/sent')} class="btn preset-filled-primary-500 mt-2">
-				View sent emails
+			<a href={next} class="btn preset-filled-primary-500 mt-2">
+				{scheduled ? 'View scheduled batches' : 'View sent emails'}
 			</a>
 		{:else}
-			<p class="text-sm text-surface-500">Redirecting to sent emails...</p>
+			<p class="text-sm text-surface-500">
+				Redirecting to {scheduled ? 'scheduled batches' : 'sent emails'}...
+			</p>
 		{/if}
 	{:else}
 		<div class="text-6xl">&#10007;</div>

@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import CompanyType, EmailTemplate, SentEmail, Unsubscribe
+from .models import CompanyType, EmailTemplate, ScheduledBatch, SentEmail, Unsubscribe
 
 
 @admin.register(CompanyType)
@@ -36,3 +36,10 @@ class UnsubscribeAdmin(admin.ModelAdmin):
     search_fields = ("email", "company_name", "twenty_crm_id")
     readonly_fields = ("unsubscribed_at",)
     autocomplete_fields = ("sent_email",)
+
+
+@admin.register(ScheduledBatch)
+class ScheduledBatchAdmin(admin.ModelAdmin):
+    list_display = ("id", "template", "scheduled_at", "timezone", "status", "queued", "skipped")
+    list_filter = ("status",)
+    readonly_fields = ("created_at",)

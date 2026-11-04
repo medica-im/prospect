@@ -15,9 +15,12 @@ const SendEmailPost = z.object({
 		company_type_id: z.number(),
 		twenty_crm_id: z.string(),
 	}))),
+	// Empty `scheduled_for` means send now; otherwise a wall-clock time in `timezone`.
+	scheduled_for: z.string().optional(),
+	timezone: z.string().optional(),
 });
 
-export const sendEmails = form(SendEmailPost, async (data) => {
+export const sendEmails = form(SendEmailPost, async ({ scheduled_for, timezone, ...data }) => {
 	const { cookies } = getRequestEvent();
 	const sessionId = cookies.get('sessionid');
 	const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -26,7 +29,7 @@ export const sendEmails = form(SendEmailPost, async (data) => {
 	const response = await fetch(`${API}/api/emails/send`, {
 		method: 'POST',
 		headers,
-		body: JSON.stringify(data),
+		body: JSON.stringify(scheduled_for ? { ...data, scheduled_for, timezone } : data),
 	});
 
 	if (!response.ok) {
@@ -42,5 +45,6 @@ export const sendEmails = form(SendEmailPost, async (data) => {
 		// Recipients the backend refused because they unsubscribed.
 		skipped: (json.skipped ?? 0) as number,
 		skippedEmails: (json.skipped_emails ?? []) as string[],
+		scheduled: Boolean(json.scheduled_at),
 	};
 });

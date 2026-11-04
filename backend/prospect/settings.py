@@ -49,6 +49,7 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'axes',
+    'django_celery_beat',
     'emails',
     'twenty',
     'webprospects',
@@ -194,6 +195,15 @@ CELERY_BROKER_URL = env('CELERY_BROKER_URL', default='amqp://guest:guest@rabbitm
 CELERY_RESULT_BACKEND = env('CELERY_RESULT_BACKEND', default='redis://redis:6379/0')
 CELERY_TASK_TRACK_STARTED = True
 CELERY_RESULT_EXTENDED = True
+# Periodic tasks live in the database so recurring jobs can be added from the
+# admin without a deploy. Entries below are synced into it when beat starts.
+CELERY_BEAT_SCHEDULER = 'django_celery_beat.schedulers:DatabaseScheduler'
+CELERY_BEAT_SCHEDULE = {
+    'dispatch-due-batches': {
+        'task': 'emails.tasks.dispatch_due_batches',
+        'schedule': 60.0,
+    },
+}
 
 # Mailgun
 MAILGUN_API_URL = env('MAILGUN_API_URL', default='')

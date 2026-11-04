@@ -41,7 +41,7 @@ class AnonymousAccessTests(TestCase):
         self.assertEqual(response.status_code, 401)
         mock_fetch.assert_not_called()
 
-    @patch("emails.api.send_prospect_email")
+    @patch("emails.services.dispatch.send_prospect_email")
     def test_send_is_refused_and_nothing_is_queued(self, mock_task):
         response = self.client.post(
             "/api/emails/send",
@@ -86,7 +86,7 @@ class SessionAccessTests(TestCase):
         )
         self.assertEqual(self.client.get("/api/auth/me").status_code, 401)
 
-    @patch("emails.api.send_prospect_email")
+    @patch("emails.services.dispatch.send_prospect_email")
     def test_post_needs_no_csrf_token(self, mock_task):
         # The SvelteKit server forwards only the sessionid cookie, never a CSRF
         # token, so a session POST must go through with CSRF checks enforced.

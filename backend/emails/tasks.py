@@ -1,10 +1,11 @@
 import logging
 
 from celery import shared_task
+from django.utils import timezone
 
 from webprospects.french import UnknownArticleError
 
-from .models import EmailTemplate, SentEmail, CompanyType
+from .models import EmailTemplate, ScheduledBatch, SentEmail, CompanyType
 from .services.mailgun import send_email
 from .services.imap import save_to_sent_folder
 from .services.renderer import build_context, ensure_unsubscribe_link, render_template
@@ -12,6 +13,42 @@ from .services.delivery import undeliverable_addresses
 from .services.unsubscribe import build_unsubscribe_url, is_unsubscribed, normalize
 
 logger = logging.getLogger(__name__)
+
+
+@shared_task
+def dispatch_due_batches() -> dict:
+    """Beat task: queue the emails of every scheduled batch whose time has come."""
+    # Imported here: services.dispatch imports this module for send_prospect_email.
+    from .schemas import SendEmailRecipient
+    from .services.dispatch import dispatch_batch
+
+    due = ScheduledBatch.objects.filter(
+        status=ScheduledBatch.STATUS_PENDING, scheduled_at__lte=timezone.now(),
+    ).select_related("template")
+
+    dispatched = 0
+    for batch in due:
+        # Claim the batch first: if two ticks overlap, only one gets a row back.
+        claimed = ScheduledBatch.objects.filter(
+            pk=batch.pk, status=ScheduledBatch.STATUS_PENDING,
+        ).update(status=ScheduledBatch.STATUS_RUNNING)
+        if not claimed:
+            continue
+
+        queued, blocked = 0, []
+        if batch.template is None:
+            logger.error(f"Scheduled batch {batch.pk} dropped: its template was deleted")
+        else:
+            recipients = [SendEmailRecipient(**r) for r in batch.recipients]
+            queued, blocked = dispatch_batch(batch.template, recipients)
+
+        batch.status = ScheduledBatch.STATUS_DONE
+        batch.queued = queued
+        batch.skipped = len(blocked)
+        batch.save(update_fields=["status", "queued", "skipped"])
+        dispatched += 1
+
+    return {"dispatched": dispatched}
 
 
 @shared_task(bind=True, max_retries=3, default_retry_delay=60)

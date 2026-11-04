@@ -7,7 +7,7 @@ from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.test import TestCase, override_settings
 
-from .models import CompanyType, EmailTemplate, SentEmail, Unsubscribe
+from .models import CompanyType, EmailTemplate, ScheduledBatch, SentEmail, Unsubscribe
 from .services.mailgun import send_email
 from .services.renderer import ensure_unsubscribe_link
 from .services.unsubscribe import (
@@ -17,7 +17,7 @@ from .services.unsubscribe import (
     load_token,
     make_token,
 )
-from .tasks import send_prospect_email
+from .tasks import dispatch_due_batches, send_prospect_email
 
 
 class Recipient:
@@ -169,7 +169,7 @@ class SendFilteringTests(TestCase):
             ],
         }
 
-    @patch("emails.api.send_prospect_email")
+    @patch("emails.services.dispatch.send_prospect_email")
     def test_api_skips_unsubscribed_recipients(self, mock_task):
         response = self.client.post(
             "/api/emails/send",
@@ -1027,3 +1027,157 @@ class InferredRefusalTests(TestCase):
         self.assertIn("5.1.1", rows[0]["delivery_detail"])
         csv_text = self.client.get("/api/emails/problem-addresses.csv").content.decode("utf-8-sig")
         self.assertIn("mailbox_missing", csv_text)
+
+
+class ScheduledSendTests(TestCase):
+    NOW = datetime(2026, 11, 4, 12, 0, tzinfo=dt_timezone.utc)
+
+    def setUp(self):
+        self.user = get_user_model().objects.create_user("operator")
+        self.client.force_login(self.user)
+        self.company_type = CompanyType.objects.create(name="msp", label="MSP")
+        self.template = EmailTemplate.objects.create(
+            name="T", subject_template="Bonjour", html_body="<html><body>B</body></html>"
+        )
+        Unsubscribe.objects.create(email="gone@example.fr")
+
+    def _post(self, scheduled_for=None, tz=None, *emails):
+        payload = {
+            "template_id": self.template.id,
+            "recipients": [
+                {
+                    "company_name": "MSP du Marais",
+                    "company_email": email,
+                    "company_type_id": self.company_type.id,
+                    "twenty_crm_id": "crm-1",
+                }
+                for email in (emails or ("ok@example.fr",))
+            ],
+        }
+        if scheduled_for:
+            payload["scheduled_for"] = scheduled_for
+        if tz:
+            payload["timezone"] = tz
+        return self.client.post(
+            "/api/emails/send", data=payload, content_type="application/json"
+        )
+
+    def _batch(self, minutes_from_now, status=ScheduledBatch.STATUS_PENDING):
+        return ScheduledBatch.objects.create(
+            template=self.template,
+            recipients=[
+                {
+                    "company_name": "MSP du Marais",
+                    "company_email": email,
+                    "company_type_id": self.company_type.id,
+                    "twenty_crm_id": "crm-1",
+                }
+                for email in ("ok@example.fr", "gone@example.fr")
+            ],
+            scheduled_at=timezone.now() + timedelta(minutes=minutes_from_now),
+            timezone="Europe/Paris",
+            status=status,
+        )
+
+    @patch("emails.api.timezone.now", return_value=NOW)
+    @patch("emails.services.dispatch.send_prospect_email")
+    def test_scheduling_stores_a_batch_and_queues_nothing(self, mock_task, _now):
+        response = self._post("2027-01-15T09:00")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["queued"], 0)
+        mock_task.delay.assert_not_called()
+        batch = ScheduledBatch.objects.get()
+        self.assertEqual(batch.status, ScheduledBatch.STATUS_PENDING)
+        self.assertEqual(batch.timezone, "Europe/Paris")
+        self.assertEqual(batch.created_by, self.user)
+        self.assertEqual(batch.recipients[0]["company_email"], "ok@example.fr")
+
+    @patch("emails.api.timezone.now", return_value=NOW)
+    def test_default_zone_is_paris_and_follows_daylight_saving(self, _now):
+        self._post("2027-01-15T09:00")  # CET, UTC+1
+        self._post("2027-07-15T09:00")  # CEST, UTC+2
+        winter, summer = ScheduledBatch.objects.order_by("scheduled_at")
+        self.assertEqual(winter.scheduled_at, datetime(2027, 1, 15, 8, 0, tzinfo=dt_timezone.utc))
+        self.assertEqual(summer.scheduled_at, datetime(2027, 7, 15, 7, 0, tzinfo=dt_timezone.utc))
+
+    @patch("emails.api.timezone.now", return_value=NOW)
+    def test_other_zone_is_honoured(self, _now):
+        self._post("2027-01-15T09:00", "America/Montreal")  # EST, UTC-5
+        self.assertEqual(
+            ScheduledBatch.objects.get().scheduled_at,
+            datetime(2027, 1, 15, 14, 0, tzinfo=dt_timezone.utc),
+        )
+
+    @patch("emails.api.timezone.now", return_value=NOW)
+    def test_invalid_schedules_are_refused(self, _now):
+        cases = {
+            "unknown zone": ("2027-01-15T09:00", "Mars/Olympus"),
+            "garbage date": ("tomorrow", None),
+            "in the past": ("2026-11-03T09:00", None),
+            "less than a minute ahead": ("2026-11-04T13:00:30", None),  # 12:00:30 UTC
+            "offset given": ("2027-01-15T09:00+01:00", None),
+            "skipped by DST": ("2027-03-28T02:30", None),
+        }
+        for label, (when, tz) in cases.items():
+            with self.subTest(label):
+                self.assertEqual(self._post(when, tz).status_code, 422)
+        self.assertEqual(ScheduledBatch.objects.count(), 0)
+
+    @patch("emails.services.dispatch.send_prospect_email")
+    def test_dispatch_queues_due_batches_only(self, mock_task):
+        due = self._batch(-1)
+        future = self._batch(60)
+        cancelled = self._batch(-1, ScheduledBatch.STATUS_CANCELLED)
+
+        result = dispatch_due_batches()
+
+        self.assertEqual(result, {"dispatched": 1})
+        due.refresh_from_db()
+        self.assertEqual(due.status, ScheduledBatch.STATUS_DONE)
+        # gone@example.fr opted out while the batch waited.
+        self.assertEqual((due.queued, due.skipped), (1, 1))
+        self.assertEqual(mock_task.delay.call_count, 1)
+        self.assertEqual(mock_task.delay.call_args.kwargs["company_email"], "ok@example.fr")
+        future.refresh_from_db()
+        cancelled.refresh_from_db()
+        self.assertEqual(future.status, ScheduledBatch.STATUS_PENDING)
+        self.assertEqual(cancelled.status, ScheduledBatch.STATUS_CANCELLED)
+
+    @patch("emails.services.dispatch.send_prospect_email")
+    def test_dispatch_is_idempotent(self, mock_task):
+        self._batch(-1)
+        dispatch_due_batches()
+        self.assertEqual(dispatch_due_batches(), {"dispatched": 0})
+        self.assertEqual(mock_task.delay.call_count, 1)
+
+    @patch("emails.services.dispatch.send_prospect_email")
+    def test_dispatch_survives_a_deleted_template(self, mock_task):
+        batch = self._batch(-1)
+        self.template.delete()
+        dispatch_due_batches()
+        batch.refresh_from_db()
+        self.assertEqual(batch.status, ScheduledBatch.STATUS_DONE)
+        self.assertEqual(batch.queued, 0)
+        mock_task.delay.assert_not_called()
+
+    @patch("emails.services.dispatch.send_prospect_email")
+    def test_cancel_stops_a_pending_batch(self, mock_task):
+        batch = self._batch(-1)
+        response = self.client.post(f"/api/emails/scheduled/{batch.id}/cancel")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["status"], "cancelled")
+        dispatch_due_batches()
+        mock_task.delay.assert_not_called()
+
+    def test_cancel_refuses_a_batch_that_already_ran(self):
+        batch = self._batch(-1, ScheduledBatch.STATUS_DONE)
+        response = self.client.post(f"/api/emails/scheduled/{batch.id}/cancel")
+        self.assertEqual(response.status_code, 409)
+
+    def test_list_shows_batches(self):
+        self._batch(60)
+        body = self.client.get("/api/emails/scheduled").json()
+        self.assertEqual(len(body), 1)
+        self.assertEqual(body[0]["template_name"], "T")
+        self.assertEqual(body[0]["recipient_count"], 2)
+        self.assertEqual(body[0]["timezone"], "Europe/Paris")

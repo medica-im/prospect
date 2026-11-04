@@ -141,6 +141,24 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  # Exactly one beat: two would queue every periodic task twice.
+  beat:
+    image: ${BACKEND_IMAGE}
+    command: celery -A prospect beat --loglevel=warning
+    env_file:
+      - .env
+    environment:
+      DJANGO_DEBUG: "False"
+      CELERY_BROKER_URL: "amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672//"
+    depends_on:
+      release:
+        condition: service_completed_successfully
+      db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+
   frontend:
     image: ${FRONTEND_IMAGE}
     # node, not curl: the slim runtime image has no http client but always has

@@ -19,6 +19,12 @@
 		>
 			Sent Emails
 		</a>
+		<a
+			href={resolve('/emails/scheduled')}
+			class="btn {page.url.pathname.includes('/emails/scheduled') ? 'preset-filled-primary-500' : 'preset-outlined-surface-500'}"
+		>
+			Scheduled
+		</a>
 	</nav>
 
 	{@render children()}

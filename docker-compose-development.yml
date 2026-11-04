@@ -73,5 +73,19 @@ services:
       rabbitmq:
         condition: service_healthy
 
+  # Exactly one beat: two would queue every periodic task twice.
+  beat:
+    build: ./backend
+    command: celery -A prospect beat --loglevel=info
+    volumes:
+      - ./backend:/app
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
 volumes:
   postgres_data:

@@ -1,14 +1,18 @@
 import csv
 import logging
+from datetime import datetime, timedelta, timezone as dt_timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.conf import settings
 from django.db.models import Count, Max, Q
 from django.db.models.functions import Lower
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from ninja import Router
+from ninja.errors import HttpError
 
-from .models import CompanyType, EmailTemplate, SentEmail, Unsubscribe
+from .models import CompanyType, EmailTemplate, ScheduledBatch, SentEmail, Unsubscribe
 from .schemas import (
     CompanyEmailStats,
     CompanyOut,
@@ -16,6 +20,7 @@ from .schemas import (
     DeliveryEventOut,
     EmailTemplateOut,
     ProblemAddressOut,
+    ScheduledBatchOut,
     SendEmailRequest,
     SendEmailResponse,
     SentEmailOut,
@@ -28,11 +33,12 @@ from .services.imap import fetch_email_from_sent
 from webprospects.french import UnknownArticleError
 
 from .services.renderer import build_context, render_template
-from .services.unsubscribe import filter_recipients
-from .tasks import send_prospect_email
+from .services.dispatch import dispatch_batch
 
 logger = logging.getLogger(__name__)
 router = Router()
+
+MIN_SCHEDULE_LEAD = timedelta(minutes=1)
 
 
 # --- Company Types ---
@@ -113,39 +119,106 @@ def list_templates(request):
 
 # --- Send Emails ---
 
+def _parse_schedule(scheduled_for: str, tz_name: str) -> datetime:
+    """Turn a wall-clock time in `tz_name` into an aware UTC datetime, or raise 422.
+
+    An ambiguous time (clocks go back, so it happens twice) resolves to its first
+    occurrence; a time that does not exist (clocks go forward) is refused.
+    """
+    try:
+        zone = ZoneInfo(tz_name)
+    except (ZoneInfoNotFoundError, ValueError):
+        raise HttpError(422, f"Unknown time zone: {tz_name}")
+    try:
+        local = datetime.fromisoformat(scheduled_for)
+    except ValueError:
+        raise HttpError(422, f"Invalid date and time: {scheduled_for}")
+    if local.tzinfo is not None:
+        raise HttpError(422, "scheduled_for must not carry a UTC offset; pass the zone in `timezone`")
+
+    local = local.replace(tzinfo=zone, fold=0)
+    at = local.astimezone(dt_timezone.utc)
+    if at.astimezone(zone).replace(tzinfo=None) != local.replace(tzinfo=None):
+        raise HttpError(422, f"{scheduled_for} does not exist in {tz_name} (clocks change)")
+    if at < timezone.now() + MIN_SCHEDULE_LEAD:
+        raise HttpError(422, "Choose a time at least a minute in the future")
+    return at
+
+
 @router.post("/emails/send", response=SendEmailResponse)
 def send_emails(request, payload: SendEmailRequest):
-    """Queue emails to selected companies with the chosen template.
+    """Queue emails to selected companies with the chosen template, now or later.
 
-    Unsubscribed recipients are dropped here so the operator gets immediate
-    feedback; the task re-checks before sending, which is the real gate.
+    With `scheduled_for` the batch is stored and sent by the beat task when due;
+    otherwise it is queued immediately.
     """
     template = get_object_or_404(EmailTemplate, id=payload.template_id)
 
-    recipients, blocked = filter_recipients(payload.recipients)
-
-    for recipient in recipients:
-        send_prospect_email.delay(
-            template_id=template.id,
-            company_name=recipient.company_name,
-            company_email=recipient.company_email,
-            company_type_id=recipient.company_type_id,
-            twenty_crm_id=recipient.twenty_crm_id,
+    if payload.scheduled_for:
+        at = _parse_schedule(payload.scheduled_for, payload.timezone)
+        ScheduledBatch.objects.create(
+            template=template,
+            recipients=[r.dict() for r in payload.recipients],
+            scheduled_at=at,
+            timezone=payload.timezone,
+            created_by=request.user if request.user.is_authenticated else None,
         )
+        message = (
+            f"Scheduled {len(payload.recipients)} email(s) for "
+            f"{payload.scheduled_for.replace('T', ' ')} ({payload.timezone})."
+        )
+        if settings.EMAIL_DRY_RUN:
+            message += " Dry run: nothing actually leaves the server."
+        return SendEmailResponse(queued=0, message=message, scheduled_at=at)
 
-    message = f"Queued {len(recipients)} email(s) for sending."
+    queued, blocked = dispatch_batch(template, payload.recipients)
+
+    message = f"Queued {queued} email(s) for sending."
     if blocked:
-        logger.info(f"Skipped {len(blocked)} unsubscribed or undeliverable recipient(s)")
         message += f" Skipped {len(blocked)} unsubscribed or undeliverable recipient(s)."
     if settings.EMAIL_DRY_RUN:
         message += " Dry run: nothing actually leaves the server."
 
     return SendEmailResponse(
-        queued=len(recipients),
+        queued=queued,
         message=message,
         skipped=len(blocked),
         skipped_emails=[r.company_email for r in blocked],
     )
+
+
+# --- Scheduled batches ---
+
+def _batch_out(b: ScheduledBatch) -> ScheduledBatchOut:
+    return ScheduledBatchOut(
+        id=b.id,
+        template_name=b.template.name if b.template else None,
+        scheduled_at=b.scheduled_at,
+        timezone=b.timezone,
+        status=b.status,
+        recipient_count=len(b.recipients),
+        queued=b.queued,
+        skipped=b.skipped,
+        created_at=b.created_at,
+    )
+
+
+@router.get("/emails/scheduled", response=list[ScheduledBatchOut])
+def list_scheduled_batches(request):
+    return [_batch_out(b) for b in ScheduledBatch.objects.select_related("template")]
+
+
+@router.post("/emails/scheduled/{batch_id}/cancel", response=ScheduledBatchOut)
+def cancel_scheduled_batch(request, batch_id: int):
+    batch = get_object_or_404(ScheduledBatch.objects.select_related("template"), id=batch_id)
+    # Conditional update: loses cleanly against the beat task claiming it.
+    cancelled = ScheduledBatch.objects.filter(
+        pk=batch.pk, status=ScheduledBatch.STATUS_PENDING,
+    ).update(status=ScheduledBatch.STATUS_CANCELLED)
+    if not cancelled:
+        raise HttpError(409, "Only a batch that is still waiting can be cancelled")
+    batch.status = ScheduledBatch.STATUS_CANCELLED
+    return _batch_out(batch)
 
 
 # --- Unsubscribes ---
