@@ -59,9 +59,13 @@ export function wallClockToInstant(local: string, tz: string): Date | null {
 
 /** An instant shown in the viewer's own zone, to cross-check the chosen one. */
 export function inBrowserZone(at: Date): string {
+	// Explicit fields: dateStyle/timeStyle cannot be combined with timeZoneName.
 	return at.toLocaleString(undefined, {
-		dateStyle: 'medium',
-		timeStyle: 'short',
+		day: 'numeric',
+		month: 'short',
+		year: 'numeric',
+		hour: '2-digit',
+		minute: '2-digit',
 		timeZoneName: 'short'
 	});
 }

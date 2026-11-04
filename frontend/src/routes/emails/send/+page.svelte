@@ -5,12 +5,7 @@
 	import { tick } from 'svelte';
 	import CompanyTable from '$lib/emails/CompanyTable.svelte';
 	import type { SelectedRecipient } from '$lib/emails/selection';
-	import {
-		DEFAULT_TIME_ZONE,
-		inBrowserZone,
-		timeZones,
-		wallClockToInstant
-	} from '$lib/emails/schedule';
+	import SendStep from '$lib/emails/SendStep.svelte';
 	import TemplateSelector from '$lib/emails/TemplateSelector.svelte';
 	import SendConfirmation from '$lib/emails/SendConfirmation.svelte';
 	import { JsonView } from '@zerodevx/svelte-json-view';
@@ -65,22 +60,6 @@
 	);
 
 	let formResult = $derived(sendEmails.result);
-
-	// Scheduling: the time is a wall clock in the chosen zone (the operator's
-	// clients are in Paris, the operator is not), converted by the backend.
-	let sendLater = $state(false);
-	let scheduledFor = $state('');
-	let timeZone = $state(DEFAULT_TIME_ZONE);
-	const zones = timeZones();
-
-	let scheduledInstant = $derived(sendLater ? wallClockToInstant(scheduledFor, timeZone) : null);
-	let scheduleError = $derived.by(() => {
-		if (!sendLater) return '';
-		if (!scheduledFor) return 'Pick a date and time.';
-		if (!scheduledInstant) return 'This time does not exist in that zone (clocks change).';
-		if (scheduledInstant.getTime() < Date.now() + 60_000) return 'Pick a time in the future.';
-		return '';
-	});
 
 	// The page data is fetched once per visit (Twenty is slow); this re-runs the
 	// load on demand. The selection survives, it lives in this component.
@@ -171,94 +150,36 @@
 </div>
 
 {#if currentStep === 1}
-	<!-- Step 1: Select template -->
-	<TemplateSelector
-		templates={data.templates}
-		{selectedCompanyTypes}
-		bind:selectedTemplate
-	/>
+	<!-- Step 1: Select template. Narrow on purpose: the cards stack and the
+	     options sit next to the send button instead of at the screen's edges. -->
+	<div class="max-w-3xl space-y-6">
+		<TemplateSelector
+			templates={data.templates}
+			{selectedCompanyTypes}
+			bind:selectedTemplate
+		/>
 
-	<form
-		{...sendEmails.enhance(async ({ submit }) => {
-			try {
-				await submit();
-				if (sendEmails.result?.success) {
-					// Replacing the template step means Back from the confirmation
-					// returns to the selection, emptied so nothing goes out twice.
-					table?.clearSelection();
-					replaceState('', { step: 2 });
+		<SendStep
+			formProps={sendEmails.enhance(async ({ submit }) => {
+				try {
+					await submit();
+					if (sendEmails.result?.success) {
+						// Replacing the template step means Back from the confirmation
+						// returns to the selection, emptied so nothing goes out twice.
+						table?.clearSelection();
+						replaceState('', { step: 2 });
+					}
+				} catch (error) {
+					console.error(error);
 				}
-			} catch (error) {
-				console.error(error);
-			}
-		})}
-		class="mt-6 space-y-4"
-	>
-		<fieldset class="card p-4 space-y-3">
-			<legend class="font-bold px-2">When</legend>
-			<label class="flex items-center gap-2">
-				<input type="radio" class="radio" checked={!sendLater} onchange={() => (sendLater = false)} />
-				Send now
-			</label>
-			<label class="flex items-center gap-2">
-				<input type="radio" class="radio" checked={sendLater} onchange={() => (sendLater = true)} />
-				Schedule for later
-			</label>
-
-			{#if sendLater}
-				<div class="flex flex-wrap items-end gap-3">
-					<label class="label">
-						<span class="label-text">Date and time</span>
-						<input type="datetime-local" class="input" bind:value={scheduledFor} />
-					</label>
-					<label class="label">
-						<span class="label-text">Time zone</span>
-						<select class="select" bind:value={timeZone}>
-							{#each zones as zone (zone)}
-								<option value={zone}>{zone}</option>
-							{/each}
-						</select>
-					</label>
-				</div>
-				{#if scheduleError}
-					<p class="text-sm text-error-500">{scheduleError}</p>
-				{:else if scheduledInstant}
-					<p class="text-sm text-surface-600-400">
-						That is {inBrowserZone(scheduledInstant)} for you.
-					</p>
-				{/if}
-			{/if}
-		</fieldset>
-
-		<div class="flex justify-between">
-			<button
-				type="button"
-				class="btn preset-outlined-surface-500"
-				onclick={backToSelection}
-			>
-				← Back
-			</button>
-
-			<input type="hidden" name="template_id" value={selectedTemplate?.id ?? ''} />
-			<input type="hidden" name="recipients" value={recipientsJson} />
-			<input type="hidden" name="scheduled_for" value={sendLater ? scheduledFor : ''} />
-			<input type="hidden" name="timezone" value={timeZone} />
-
-			<button
-				type="submit"
-				class="btn preset-filled-primary-500"
-				disabled={!selectedTemplate || !!sendEmails.pending || !!scheduleError}
-			>
-				{#if sendEmails.pending}
-					{sendLater ? 'Scheduling...' : 'Sending...'}
-				{:else if sendLater}
-					Schedule {selectedRecipients.length} Email(s)
-				{:else}
-					Send {selectedRecipients.length} Email(s)
-				{/if}
-			</button>
-		</div>
-	</form>
+			})}
+			templateId={selectedTemplate?.id ?? null}
+			{recipientsJson}
+			count={selectedRecipients.length}
+			pending={!!sendEmails.pending}
+			onback={backToSelection}
+		/>
+	</div>
 
 {:else if currentStep === 2}
 	<!-- Step 2: Confirmation -->

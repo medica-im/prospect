@@ -33,7 +33,7 @@
 			No templates available for the selected company types.
 		</div>
 	{:else}
-		<div class="grid gap-4 sm:grid-cols-2">
+		<div class="space-y-3">
 			{#each available as template (template.id)}
 				<button
 					type="button"
