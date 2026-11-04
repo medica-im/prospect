@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 #
-# Pull prebuilt images on the production server and restart the containers.
+# Update the checkout, pull prebuilt images on the production server and restart
+# the containers.
 #
 # Deliberately never builds: scripts/build-image.sh builds and pushes from a
 # dev machine, this pulls those exact tags. Production therefore runs the same
@@ -155,6 +156,7 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
 	echo
 	echo "==> (dry run) would run on $DEPLOY_HOST:"
 	echo "    cd $DEPLOY_DIR"
+	echo "    git pull --ff-only"
 	[[ -n "$FRONTEND_PINNED" ]] && echo "    FRONTEND_IMAGE=$FRONTEND_PINNED"
 	[[ -n "$BACKEND_PINNED" ]] && echo "    BACKEND_IMAGE=$BACKEND_PINNED"
 	echo "    docker compose -f $COMPOSE_FILE pull --quiet"
@@ -178,6 +180,18 @@ cd "$DEPLOY_DIR"
 if [[ ! -f .env ]]; then
     echo "error: .env missing on the remote host. Copy .env.production.example" >&2
     echo "       and fill it in before deploying." >&2
+    exit 1
+fi
+
+# The compose file comes from this checkout and the images from the registry,
+# so a release that adds a service (e.g. beat) needs both. --ff-only refuses to
+# merge: a server-side edit or a diverged branch stops the deploy here instead
+# of being silently mixed in.
+echo "    updating the checkout"
+git pull --ff-only --quiet
+if ! git cat-file -e "$TAG^{commit}" 2>/dev/null; then
+    echo "error: commit $TAG is not on the server after git pull. Push it first:" >&2
+    echo "       cd $REPO_ROOT && git push" >&2
     exit 1
 fi
 
