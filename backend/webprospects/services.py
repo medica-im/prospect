@@ -265,7 +265,7 @@ def apply_update(company: dict, diff: list[dict], record: dict) -> dict:
     skipped: list[str] = []
     if "email" in fields or "phone" in fields:
         res = create_contact_person_safe(
-            company_id, record.get("name", ""),
+            company_id,
             fields["email"]["value"] if "email" in fields else "",
             fields["phone"]["value"] if "phone" in fields else "",
         )
@@ -315,7 +315,7 @@ def find_person_owner_by_email(email: str) -> dict | None:
 
 
 def create_contact_person_safe(
-    company_id: str, company_name: str, email: str, phone: str,
+    company_id: str, email: str, phone: str,
 ) -> dict:
     """Create a Contact person, tolerating Twenty's unique email duplicates.
 
@@ -335,8 +335,8 @@ def create_contact_person_safe(
             return {"person_id": "", "skipped": skipped, "duplicate_owner": duplicate_owner}
         try:
             person = create_person(
-                first_name="Contact", last_name=company_name,
-                company_id=company_id, job_title="Contact",
+                first_name="Contact", last_name="",     # the company link already names the organisation
+                company_id=company_id,       # a general mailbox has no job title
                 email=cur_email, phone=cur_phone,
             )
             return {
@@ -412,14 +412,14 @@ def process_record(record: dict, company_type_value: str | None) -> dict:
             _safe_person(person, company_id, "Coordinateur")
         # Team leaders
         for person in record.get("team_leaders", []):
-            _safe_person(person, company_id, "Team Leader")
+            _safe_person(person, company_id, "Gérant")   # APMSL's "Team Leader" runs the MSP: a gérant
         # Contact person carrying the entite-contact email/phone. Duplicate
         # email/phone (already on another company) is non-fatal — skip that field.
         warnings: list[str] = []
         duplicate_owner = None
         if record.get("email") or record.get("phone"):
             res = create_contact_person_safe(
-                company_id, record.get("name", ""),
+                company_id,
                 record.get("email", ""), record.get("phone", ""),
             )
             if res["skipped"]:

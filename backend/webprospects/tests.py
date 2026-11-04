@@ -86,3 +86,27 @@ class ApmslScraperTests(TestCase):
         html = SAMPLE.replace('<img title="POLE DE SANTE DU MARAIS" alt="POLE DE SANTE DU MARAIS">', "")
         records = parse_apmsl(html)
         self.assertEqual(records[0]["name"], "POLE DE SANTE DU MARAIS")
+
+
+class ScrapedJobTitleTests(TestCase):
+    """A job title is a role in the structure from a short list, never the scraper's own label."""
+
+    def test_team_leaders_are_gerants_and_the_contact_mailbox_has_no_title(self):
+        from unittest import mock
+
+        from webprospects import services
+
+        record = {
+            "name": "MSP Test", "email": "contact@msp-test.fr",
+            "coordinators": [{"first_name": "Anne", "last_name": "Coord"}],
+            "team_leaders": [{"first_name": "Marie", "last_name": "Zinutti"}],
+        }
+        with mock.patch.object(services, "create_company", return_value={"id": "c1"}), \
+                mock.patch.object(services, "create_person", return_value={"id": "p"}) as person, \
+                mock.patch.object(services, "create_note_for_company"):
+            services.process_record(record, "MSP")
+        titles = {c.kwargs["first_name"] if "first_name" in c.kwargs else c.args[0]: c.kwargs.get("job_title", "")
+                  for c in person.call_args_list}
+        self.assertEqual(titles, {"Anne": "Coordinateur", "Marie": "Gérant", "Contact": ""})
+        contact = next(c for c in person.call_args_list if c.kwargs.get("first_name") == "Contact")
+        self.assertEqual(contact.kwargs["last_name"], "")          # never the organisation's name
