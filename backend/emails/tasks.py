@@ -9,6 +9,7 @@ from .models import EmailTemplate, ScheduledBatch, SentEmail, CompanyType
 from .services.mailgun import send_email
 from .services.imap import save_to_sent_folder
 from .services.renderer import build_context, ensure_unsubscribe_link, render_template
+from .services.closed_networks import is_closed_network
 from .services.delivery import undeliverable_addresses
 from .services.unsubscribe import build_unsubscribe_url, is_unsubscribed, normalize
 
@@ -69,6 +70,10 @@ def send_prospect_email(
     if is_unsubscribed(company_email):
         logger.info(f"Skipping email to {company_email}: recipient unsubscribed")
         return {"status": "skipped", "reason": "unsubscribed"}
+
+    if is_closed_network(company_email):
+        logger.info(f"Skipping email to {company_email}: closed network (MSSanté)")
+        return {"status": "skipped", "reason": "closed_network"}
 
     # Same idea for addresses Mailgun reported as non-existent or that complained:
     # mailing them again only hurts the sender reputation.

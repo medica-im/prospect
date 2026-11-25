@@ -1,8 +1,10 @@
 import csv
 import logging
 from datetime import datetime, timedelta, timezone as dt_timezone
+from typing import Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+import httpx
 from django.conf import settings
 from django.db.models import Count, Max, Q
 from django.db.models.functions import Lower
@@ -12,11 +14,13 @@ from django.utils import timezone
 from ninja import Router
 from ninja.errors import HttpError
 
+from prospect.security import api_token_auth, session_auth
 from .models import CompanyType, EmailTemplate, ScheduledBatch, SentEmail, Unsubscribe
 from .schemas import (
     CompanyEmailStats,
     CompanyOut,
     CompanyTypeOut,
+    CurrentProblemsOut,
     DeliveryEventOut,
     EmailTemplateOut,
     ProblemAddressOut,
@@ -28,6 +32,7 @@ from .schemas import (
     UnsubscribeOut,
 )
 from .services.delivery import problem_addresses
+from .services.problems import current_problem_addresses
 from .services.twenty_crm import fetch_companies
 from .services.imap import fetch_email_from_sent
 from webprospects.french import UnknownArticleError
@@ -292,7 +297,13 @@ CSV_COLUMNS = [
     ("delivery_detail", "smtp_detail"),
     ("last_event_at", "date"),
     ("emails_sent", "emails_sent"),
+    ("first_sent_at", "first_sent_at"),
+    ("first_problem_at", "first_problem_at"),
 ]
+
+
+def _csv_cell(value):
+    return value.isoformat() if isinstance(value, datetime) else value
 
 
 @router.get("/emails/problem-addresses", response=list[ProblemAddressOut])
@@ -313,10 +324,69 @@ def export_problem_addresses(request, all: bool = False):
     writer = csv.writer(response)
     writer.writerow([header for _, header in CSV_COLUMNS])
     for row in problem_addresses(dead_only=not all):
-        writer.writerow([
-            row[key].isoformat() if key == "last_event_at" and row[key] else row[key]
-            for key, _ in CSV_COLUMNS
-        ])
+        writer.writerow([_csv_cell(row[key]) for key, _ in CSV_COLUMNS])
+    return response
+
+
+# --- Problem addresses that are still in Twenty ---
+
+# Read-only GET routes that also accept a Bearer token, so a Claude session on
+# another machine can query them. Nothing else may: prospect/tests.py pins this.
+CURRENT_PROBLEMS_AUTH = [session_auth, api_token_auth]
+
+CURRENT_PROBLEMS_CSV_COLUMNS = [
+    "address", "person_id", "person_name", "job_title", "company_id", "company_name",
+    "company_type", "where", "status", "severity", "action", "reason", "bounce_class", "smtp_detail",
+    "attempts", "first_sent_at", "first_problem_at", "last_attempt_at", "twenty_url",
+]
+
+
+Action = Literal["remove", "review", "retry", "fix"]
+
+
+def _current_problems(severity: str, refresh: bool, action: str | None) -> dict:
+    try:
+        return current_problem_addresses(severity=severity, refresh=refresh, action=action)
+    except httpx.HTTPError:
+        logger.warning("Twenty CRM unreachable for current problems", exc_info=True)
+        raise HttpError(502, "Twenty CRM could not be reached")
+
+
+@router.get(
+    "/emails/current-problems", response=CurrentProblemsOut, auth=CURRENT_PROBLEMS_AUTH,
+)
+def list_current_problems(
+    request, severity: Literal["dead", "all"] = "dead", refresh: bool = False,
+    action: Action | None = None,
+):
+    """Addresses that are in Twenty now and whose latest send did not get through.
+
+    severity=dead: mailbox or domain does not exist, refused, or spam complaint.
+    severity=all adds the troublesome ones and those Mailgun is still retrying.
+    The Twenty snapshot is cached for ten minutes; refresh=true re-reads it.
+
+    Each row says what to do: action=remove (delete the address from Twenty: the
+    domain or mailbox is gone for good), review (look by hand), retry (temporary,
+    keep it) or fix (our own error, not the address). Pass action to keep only
+    those rows; it takes precedence over severity.
+    """
+    return _current_problems(severity, refresh, action)
+
+
+@router.get("/emails/current-problems.csv", auth=CURRENT_PROBLEMS_AUTH)
+def export_current_problems(
+    request, severity: Literal["dead", "all"] = "dead", refresh: bool = False,
+    action: Action | None = None,
+):
+    """Same list as a CSV download, BOM-prefixed like the other export."""
+    result = _current_problems(severity, refresh, action)
+    response = HttpResponse(content_type="text/csv; charset=utf-8")
+    response["Content-Disposition"] = 'attachment; filename="adresses-a-probleme.csv"'
+    response.write("﻿")
+    writer = csv.writer(response)
+    writer.writerow(CURRENT_PROBLEMS_CSV_COLUMNS)
+    for row in result["rows"]:
+        writer.writerow([_csv_cell(row[key]) for key in CURRENT_PROBLEMS_CSV_COLUMNS])
     return response
 
 

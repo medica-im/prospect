@@ -72,6 +72,9 @@
 		<a class="btn preset-filled-primary-500" href={resolve('/emails/sent/problem-addresses.csv')} download>
 			Télécharger les adresses à corriger (CSV)
 		</a>
+		<a class="btn preset-outlined-primary-500" href={resolve('/emails/problems')}>
+			Adresses encore dans Twenty
+		</a>
 	</div>
 {/if}
 

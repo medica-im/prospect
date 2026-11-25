@@ -4,8 +4,10 @@ Two sources, both applied through the same code path as live webhooks:
 
 * Suppression lists (/bounces, /complaints): every address Mailgun gave up on.
   No retention limit, so this is the authoritative source of past dead
-  addresses. Entries carry no message id, so each is matched to the address's
-  latest email sent before the bounce.
+  addresses. Every entry is also stored as a MailgunSuppression (SMTP code and
+  message), so the reports can explain an address even when we never mailed it
+  before it was listed. Entries carry no message id, so each is matched to the
+  address's latest email sent before the bounce.
 * Events API (/events): per-message delivered/failed/complained events, matched
   on the Message-ID. Mailgun keeps these only for a limited time (days to weeks
   depending on the plan), so it fills in recent history only.
@@ -16,14 +18,14 @@ Safe to re-run: every event has a unique id and is applied once.
 """
 
 from datetime import datetime, timedelta, timezone
-from email.utils import parsedate_to_datetime
 
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
-from emails.models import SentEmail
+from emails.models import MailgunSuppression, SentEmail
 from emails.services.delivery import ParsedEvent, apply_event, normalize_message_id, parse_event
 from emails.services.mailgun_api import MailgunApiError, client, paginate
+from emails.services.suppressions import parse_listed_at, record_list_item
 from emails.services.unsubscribe import normalize
 
 
@@ -37,7 +39,7 @@ class Command(BaseCommand):
 
     def handle(self, *args, days=30, skip_lists=False, skip_events=False, **options):
         domain = settings.MAILGUN_DOMAIN
-        counts = {"applied": 0, "duplicate": 0, "unmatched": 0, "inferred": 0}
+        counts = {"applied": 0, "duplicate": 0, "unmatched": 0, "inferred": 0, "listed": 0}
         try:
             with client() as http:
                 if not skip_lists:
@@ -62,7 +64,8 @@ class Command(BaseCommand):
         self.stdout.write(
             f"Applied {counts['applied']}, already known {counts['duplicate']}, "
             f"not ours/unmatched {counts['unmatched']}, "
-            f"inferred refused {counts['inferred']}."
+            f"inferred refused {counts['inferred']}, "
+            f"suppression entries stored {counts['listed']}."
         )
 
     @staticmethod
@@ -71,10 +74,14 @@ class Command(BaseCommand):
 
     def _apply_list_item(self, kind: str, item: dict, counts: dict) -> str:
         address = normalize(item.get("address", ""))
-        try:
-            created = parsedate_to_datetime(item["created_at"])
-        except (KeyError, TypeError, ValueError):
-            created = datetime.now(tz=timezone.utc)
+        created = parse_listed_at(item)
+
+        if address:
+            record_list_item(
+                MailgunSuppression.KIND_COMPLAINT if kind == "complaint" else MailgunSuppression.KIND_BOUNCE,
+                item,
+            )
+            counts["listed"] += 1
 
         # Independent of whether the entry itself matches one of our emails: we may
         # only have mailed the address after another app got it listed.

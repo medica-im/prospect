@@ -446,6 +446,27 @@ class ClassifyFailureTests(TestCase):
                     (SentEmail.DELIVERY_BOUNCED, SentEmail.BOUNCE_MAILBOX_MISSING),
                 )
 
+    def test_closed_accounts_and_exchange_unknown_recipients_are_missing_mailboxes(self):
+        for code, enhanced, detail in [
+            ("525", "5.7.13", "525 5.7.13 Disabled recipient address"),
+            ("550", "5.2.1", "550 5.2.1 This mailbox has been blocked due to inactivity (UserSearch)"),
+            ("550", "5.4.1", "550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors"),
+        ]:
+            with self.subTest(detail=detail):
+                self.assertEqual(
+                    self.classify(code=code, enhanced=enhanced, detail=detail),
+                    (SentEmail.DELIVERY_BOUNCED, SentEmail.BOUNCE_MAILBOX_MISSING),
+                )
+        # Other 5.7.x and 5.4.1 answers stay what they were.
+        self.assertEqual(
+            self.classify(code="530", enhanced="5.7.0", detail="530 5.7.0 Must issue a STARTTLS command first"),
+            (SentEmail.DELIVERY_BOUNCED, SentEmail.BOUNCE_BLOCKED),
+        )
+        self.assertEqual(
+            self.classify(code="550", enhanced="5.4.1", detail="550 5.4.1 routing loop"),
+            (SentEmail.DELIVERY_BOUNCED, SentEmail.BOUNCE_OTHER),
+        )
+
     def test_other_permanent_failures_are_told_apart(self):
         self.assertEqual(
             self.classify(enhanced="5.1.2", detail="550 5.1.2 Host not found"),

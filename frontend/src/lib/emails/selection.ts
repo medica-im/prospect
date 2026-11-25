@@ -55,6 +55,31 @@ export function normalize(email: string): string {
 	return (email ?? '').trim().toLowerCase();
 }
 
+/**
+ * Domains no outside sender can reach. MSSanté is the closed secure-messaging
+ * network of French healthcare professionals: its addresses are valid and stay
+ * in Twenty, but the send page does not know them. Mirrors
+ * backend/emails/services/closed_networks.py.
+ */
+const CLOSED_NETWORK_DOMAINS = ['mssante.fr'];
+
+export function isClosedNetwork(email: string): boolean {
+	const address = normalize(email);
+	const at = address.lastIndexOf('@');
+	if (at < 0) return false;
+	const domain = address.slice(at + 1);
+	return CLOSED_NETWORK_DOMAINS.some((d) => domain === d || domain.endsWith(`.${d}`));
+}
+
+/** The companies as the send page sees them: closed-network addresses removed, everywhere. */
+export function withoutClosedNetworks(companies: Company[]): Company[] {
+	return companies.map((company) => ({
+		...company,
+		emails: company.emails.filter((e) => !isClosedNetwork(e)),
+		people: (company.people ?? []).filter((p) => !isClosedNetwork(p.email))
+	}));
+}
+
 export function recipientKey(r: { company_id: string; company_email: string }): string {
 	return `${r.company_id}:${r.company_email}`;
 }

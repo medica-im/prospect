@@ -6,6 +6,7 @@ import {
 	countByType,
 	filterCompanies,
 	headerCheckboxAction,
+	isClosedNetwork,
 	parseMaxSent,
 	pruneOverLimit,
 	recipientKey,
@@ -14,6 +15,7 @@ import {
 	stepMaxSent,
 	updateExcluded,
 	updateSelection,
+	withoutClosedNetworks,
 	type AddressStats,
 	type Company,
 	type SelectedRecipient
@@ -44,7 +46,11 @@ const cpts = company(
 	'c1',
 	'CPTS',
 	['contact@cpts.example'],
-	[person('p1', 'alice@cpts.example', 'Alice Exemple'), person('p2', 'bob@cpts.example'), person('p3', '')]
+	[
+		person('p1', 'alice@cpts.example', 'Alice Exemple'),
+		person('p2', 'bob@cpts.example'),
+		person('p3', '')
+	]
 );
 const msp = company('c2', 'MSP', ['hello@msp.example']);
 const silent = company('c3', 'CPTS', []);
@@ -78,7 +84,11 @@ describe('limit "emails received ≤ N"', () => {
 
 	it('keeps a company only while one of its addresses is within the limit', () => {
 		const { bulkOf } = setup(0);
-		const shown = filterCompanies(companies, { search: '', noEmailOnly: false, maxSent: 0 }, bulkOf);
+		const shown = filterCompanies(
+			companies,
+			{ search: '', noEmailOnly: false, maxSent: 0 },
+			bulkOf
+		);
 		// c1 stays for Alice, c2 was never emailed, c3 has nothing to select.
 		expect(shown.map((c) => c.id)).toEqual(['c1', 'c2']);
 
@@ -178,7 +188,11 @@ describe('filters', () => {
 	});
 
 	it('"without email only" keeps companies with no address at all', () => {
-		const shown = filterCompanies(companies, { search: '', noEmailOnly: true, maxSent: null }, bulkOf);
+		const shown = filterCompanies(
+			companies,
+			{ search: '', noEmailOnly: true, maxSent: null },
+			bulkOf
+		);
 		expect(ids(shown)).toEqual(['c3']);
 	});
 
@@ -217,7 +231,8 @@ describe('select mode', () => {
 	});
 
 	it('follows the limit both ways: lowering drops addresses, raising brings them back', () => {
-		const at = (n: number | null) => emails(selectModeSelection(companies, setup(n).bulkOf, new Set()));
+		const at = (n: number | null) =>
+			emails(selectModeSelection(companies, setup(n).bulkOf, new Set()));
 		expect(at(null)).toHaveLength(4);
 		expect(at(0)).toHaveLength(2);
 		expect(at(2)).toEqual(['alice@cpts.example', 'bob@cpts.example', 'hello@msp.example']);
@@ -253,7 +268,9 @@ describe('hand-made selection', () => {
 		const once = updateSelection([], [alice, bob], true);
 		const twice = updateSelection(once, [alice], true);
 		expect(twice.map(recipientKey)).toEqual(['p1:alice@cpts.example', 'p2:bob@cpts.example']);
-		expect(updateSelection(twice, [alice], false).map(recipientKey)).toEqual(['p2:bob@cpts.example']);
+		expect(updateSelection(twice, [alice], false).map(recipientKey)).toEqual([
+			'p2:bob@cpts.example'
+		]);
 	});
 
 	it('loses its addresses over a newly committed limit', () => {
@@ -274,5 +291,45 @@ describe('header checkbox', () => {
 
 	it('unticks a hand-made selection that already covers everything shown', () => {
 		expect(headerCheckboxAction(false, true)).toBe('untick-shown');
+	});
+});
+
+// --- Closed networks (MSSanté) are never offered ---
+
+describe('closed networks', () => {
+	it('recognises MSSanté and its regional subdomains only', () => {
+		for (const e of ['a@mssante.fr', 'x@paca.mssante.fr', ' X@AURA.MSSANTE.FR ']) {
+			expect(isClosedNetwork(e), e).toBe(true);
+		}
+		for (const e of [
+			'a@gmail.com',
+			'a@notmssante.fr',
+			'a@mssante.fr.example.com',
+			'mssante.fr',
+			''
+		]) {
+			expect(isClosedNetwork(e), e).toBe(false);
+		}
+	});
+
+	it('removes them from the companies and their people, and keeps everything else', () => {
+		const company: Company = {
+			id: 'c1',
+			name: 'CPTS du Plateau',
+			emails: ['cpts@paca.mssante.fr', 'contact@cpts.example'],
+			company_type: 'CPTS',
+			domain: '',
+			city: '',
+			created_at: '2026-01-01',
+			people: [
+				{ id: 'p1', name: 'Alice', email: 'alice@aura.mssante.fr', created_at: '2026-01-01' },
+				{ id: 'p2', name: 'Bob', email: 'bob@cpts.example', created_at: '2026-01-01' },
+				{ id: 'p3', name: 'Sans email', email: '', created_at: '2026-01-01' }
+			]
+		};
+		const [clean] = withoutClosedNetworks([company]);
+		expect(clean.emails).toEqual(['contact@cpts.example']);
+		expect(clean.people.map((p) => p.id)).toEqual(['p2', 'p3']);
+		expect(clean.name).toBe('CPTS du Plateau');
 	});
 });

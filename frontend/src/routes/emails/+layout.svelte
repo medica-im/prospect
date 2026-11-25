@@ -25,6 +25,12 @@
 		>
 			Scheduled
 		</a>
+		<a
+			href={resolve('/emails/problems')}
+			class="btn {page.url.pathname.includes('/emails/problems') ? 'preset-filled-primary-500' : 'preset-outlined-surface-500'}"
+		>
+			Adresses à problème
+		</a>
 	</nav>
 
 	{@render children()}

@@ -5,11 +5,17 @@ from axes.models import AccessAttempt, AccessFailureLog
 from django.test import Client, TestCase
 from django.utils import timezone
 
-from emails.models import CompanyType, EmailTemplate
+from emails.models import ApiToken, CompanyType, EmailTemplate
+from emails.services.api_tokens import create_token
+from prospect.security import api_token_auth, session_auth
 from prospect.urls import api
 
 # The only Ninja routes an anonymous caller may reach.
 PUBLIC_OPERATIONS = {"auth_login", "auth_logout"}
+
+# The only routes that also accept a read-only Bearer token. Adding one here is a
+# decision about who can read what, so it should show up in review.
+TOKEN_OPERATIONS = {"list_current_problems", "export_current_problems"}
 
 
 def ninja_operations():
@@ -32,6 +38,15 @@ class EveryRouteRequiresAuthTests(TestCase):
         # Guards against the walk silently finding nothing.
         self.assertTrue(PUBLIC_OPERATIONS <= names)
         self.assertIn("send_emails", names)
+
+    def test_only_the_listed_read_routes_accept_a_token(self):
+        accepting = set()
+        for name, auth_callbacks in ninja_operations():
+            if api_token_auth in auth_callbacks:
+                accepting.add(name)
+                # A token never replaces the session: it is an extra way in.
+                self.assertIn(session_auth, auth_callbacks, name)
+        self.assertEqual(accepting, TOKEN_OPERATIONS)
 
 
 class AnonymousAccessTests(TestCase):
@@ -63,6 +78,61 @@ class AnonymousAccessTests(TestCase):
         # A plain Django view outside the Ninja API: recipients are never logged in.
         response = self.client.get("/api/unsubscribe/not-a-token")
         self.assertEqual(response.status_code, 200)
+
+
+class ApiTokenAccessTests(TestCase):
+    """A Bearer token reads the current-problems routes and nothing else."""
+
+    def setUp(self):
+        self.token = create_token("claude-prospection")
+        self.auth = {"HTTP_AUTHORIZATION": f"Bearer {self.token}"}
+
+    def get(self, path, token_header=None, **params):
+        return self.client.get(path, params, **(token_header if token_header is not None else self.auth))
+
+    @patch("emails.api.current_problem_addresses")
+    def test_token_reads_the_two_routes(self, mock_service):
+        mock_service.return_value = {"snapshot_at": timezone.now(), "count": 0, "rows": []}
+        self.assertEqual(self.get("/api/emails/current-problems").status_code, 200)
+        self.assertEqual(self.get("/api/emails/current-problems.csv").status_code, 200)
+        self.assertIsNotNone(ApiToken.objects.get().last_used)
+
+    @patch("emails.api.fetch_companies")
+    def test_token_is_refused_on_companies(self, mock_fetch):
+        self.assertEqual(self.get("/api/companies").status_code, 401)
+        mock_fetch.assert_not_called()
+
+    @patch("emails.services.dispatch.send_prospect_email")
+    def test_token_is_refused_on_send_and_nothing_is_queued(self, mock_task):
+        response = self.client.post(
+            "/api/emails/send",
+            data={"template_id": 1, "recipients": []},
+            content_type="application/json",
+            **self.auth,
+        )
+        self.assertEqual(response.status_code, 401)
+        mock_task.delay.assert_not_called()
+
+    def test_token_is_refused_on_other_reads(self):
+        for path in (
+            "/api/emails/sent", "/api/emails/problem-addresses",
+            "/api/emails/problem-addresses.csv", "/api/unsubscribes", "/api/auth/me",
+        ):
+            self.assertEqual(self.get(path).status_code, 401, path)
+
+    def test_unknown_malformed_and_revoked_tokens_are_refused(self):
+        route = "/api/emails/current-problems"
+        self.assertEqual(self.get(route, {"HTTP_AUTHORIZATION": "Bearer nope"}).status_code, 401)
+        self.assertEqual(self.get(route, {"HTTP_AUTHORIZATION": f"Token {self.token}"}).status_code, 401)
+        self.assertEqual(self.get(route, {}).status_code, 401)
+        ApiToken.objects.update(revoked=True)
+        self.assertEqual(self.get(route).status_code, 401)
+
+    def test_only_the_hash_is_stored(self):
+        stored = ApiToken.objects.get()
+        self.assertNotEqual(stored.sha256, self.token)
+        self.assertEqual(len(stored.sha256), 64)
+        self.assertNotIn(self.token, stored.sha256)
 
 
 class SessionAccessTests(TestCase):

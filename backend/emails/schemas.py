@@ -106,6 +106,38 @@ class ProblemAddressOut(Schema):
     delivery_detail: str
     last_event_at: datetime | None = None
     emails_sent: int
+    first_sent_at: datetime | None = None
+    first_problem_at: datetime | None = None
+
+
+class CurrentProblemOut(Schema):
+    """An address that is in Twenty now and whose latest send did not get through."""
+
+    address: str
+    person_id: str
+    person_name: str
+    job_title: str
+    company_id: str
+    company_name: str
+    company_type: str
+    where: str  # person_primary | person_additional | company
+    status: str  # a delivery_status, or send_failed when Mailgun refused the send
+    severity: str  # dead | troublesome | pending
+    action: str  # remove | review | retry | fix
+    reason: str  # why: domain_gone, mailbox_unknown, account_closed, mailbox_full, ...
+    bounce_class: str
+    smtp_detail: str
+    attempts: int
+    first_sent_at: datetime
+    first_problem_at: datetime | None = None
+    last_attempt_at: datetime
+    twenty_url: str
+
+
+class CurrentProblemsOut(Schema):
+    snapshot_at: datetime  # when Twenty was last read (cached for ten minutes)
+    count: int
+    rows: list[CurrentProblemOut]
 
 
 class DeliveryEventOut(Schema):

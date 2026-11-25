@@ -1,5 +1,7 @@
 from django.contrib import admin
-from .models import CompanyType, EmailTemplate, ScheduledBatch, SentEmail, Unsubscribe
+from .models import (
+    ApiToken, CompanyType, EmailTemplate, MailgunSuppression, ScheduledBatch, SentEmail, Unsubscribe,
+)
 
 
 @admin.register(CompanyType)
@@ -43,3 +45,31 @@ class ScheduledBatchAdmin(admin.ModelAdmin):
     list_display = ("id", "template", "scheduled_at", "timezone", "status", "queued", "skipped")
     list_filter = ("status",)
     readonly_fields = ("created_at",)
+
+
+@admin.register(ApiToken)
+class ApiTokenAdmin(admin.ModelAdmin):
+    """Revoke a token here. New ones come from `manage.py create_api_token`, which
+    is the only place the token itself is ever shown."""
+
+    list_display = ("name", "created", "last_used", "revoked")
+    list_filter = ("revoked",)
+    readonly_fields = ("name", "sha256", "created", "last_used")
+
+    def has_add_permission(self, request):
+        return False
+
+
+@admin.register(MailgunSuppression)
+class MailgunSuppressionAdmin(admin.ModelAdmin):
+    """A copy of Mailgun's bounce and complaint lists; read-only."""
+
+    list_display = ("address", "kind", "bounce_class", "code", "listed_at")
+    list_filter = ("kind", "bounce_class")
+    search_fields = ("address", "error")
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False

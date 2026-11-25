@@ -65,16 +65,18 @@ def suppressed_emails() -> set[str]:
 def filter_recipients(recipients: list) -> tuple[list, list]:
     """Split recipients into (allowed, blocked) on their `company_email`.
 
-    Blocked means unsubscribed, or reported undeliverable by Mailgun (mailbox or
-    domain does not exist, refused, spam complaint). Accepts anything with a
+    Blocked means unsubscribed, reported undeliverable by Mailgun (mailbox or
+    domain does not exist, refused, spam complaint), or on a closed network such
+    as MSSanté that no outside sender can reach. Accepts anything with a
     `company_email` attribute (SendEmailRecipient schemas).
     """
+    from .closed_networks import is_closed_network
     from .delivery import undeliverable_addresses
 
     suppressed = suppressed_emails() | undeliverable_addresses()
     allowed, blocked = [], []
     for recipient in recipients:
-        if normalize(recipient.company_email) in suppressed:
+        if normalize(recipient.company_email) in suppressed or is_closed_network(recipient.company_email):
             blocked.append(recipient)
         else:
             allowed.append(recipient)

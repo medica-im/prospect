@@ -104,6 +104,43 @@ class SentEmail(models.Model):
         return f"{self.company_name} - {self.sent_at:%Y-%m-%d %H:%M}"
 
 
+class MailgunSuppression(models.Model):
+    """What Mailgun's own bounce or complaint list says about an address.
+
+    Mailgun refuses to send to a listed address, and that refusal never says why.
+    The list does: the SMTP code and message of the original bounce. The domain is
+    shared with other apps, so an address can be listed for a bounce prospect
+    never saw; recording the entry is what lets the report explain it. Filled by
+    `manage.py backfill_mailgun_events`, one row per (address, kind), refreshed on
+    every run.
+    """
+
+    KIND_BOUNCE = "bounce"
+    KIND_COMPLAINT = "complaint"
+    KIND_CHOICES = [(KIND_BOUNCE, "Bounce list"), (KIND_COMPLAINT, "Complaint list")]
+
+    address = models.EmailField(help_text="Normalized (lowercase, trimmed)")
+    kind = models.CharField(max_length=10, choices=KIND_CHOICES)
+    code = models.CharField(max_length=10, blank=True, default="", help_text="SMTP code, e.g. 550")
+    error = models.TextField(blank=True, default="", help_text="SMTP message as Mailgun stored it")
+    enhanced_code = models.CharField(max_length=10, blank=True, default="", help_text="e.g. 5.1.1")
+    bounce_class = models.CharField(
+        max_length=20, choices=SentEmail.BOUNCE_CHOICES, blank=True, default="",
+        help_text="Same classes as SentEmail.bounce_class. Empty for a complaint.",
+    )
+    listed_at = models.DateTimeField(help_text="When Mailgun recorded the bounce or complaint")
+    fetched_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-listed_at"]
+        constraints = [
+            models.UniqueConstraint(fields=["address", "kind"], name="unique_suppression_per_kind"),
+        ]
+
+    def __str__(self):
+        return f"{self.address} ({self.kind}, {self.listed_at:%Y-%m-%d})"
+
+
 class ScheduledBatch(models.Model):
     """A send batch held in the database until `scheduled_at`.
 
@@ -222,3 +259,22 @@ class Unsubscribe(models.Model):
 
     def __str__(self):
         return f"{self.email} ({self.unsubscribed_at:%Y-%m-%d})"
+
+
+class ApiToken(models.Model):
+    """A read-only Bearer token for the few GET routes that accept one.
+
+    Only the SHA-256 of the token is stored, so a database leak does not leak a
+    usable token. Tokens are long random strings, which is why an unsalted fast
+    hash is enough here (unlike passwords). The token itself is shown once, by
+    `manage.py create_api_token`.
+    """
+
+    name = models.CharField(max_length=100, unique=True)
+    sha256 = models.CharField(max_length=64, unique=True)
+    created = models.DateTimeField(auto_now_add=True)
+    last_used = models.DateTimeField(null=True, blank=True)
+    revoked = models.BooleanField(default=False)
+
+    def __str__(self):
+        return self.name

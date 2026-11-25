@@ -1,5 +1,6 @@
 import { env } from '$env/dynamic/private';
 import { blockedLabel } from '$lib/emails/delivery';
+import { withoutClosedNetworks } from '$lib/emails/selection';
 import type { PageServerLoad } from './$types';
 
 const API = env.BACKEND_API_URL || 'http://localhost:8000';
@@ -18,7 +19,9 @@ export const load: PageServerLoad = async ({ cookies }) => {
 		fetch(`${API}/api/emails/problem-addresses`, { headers })
 	]);
 
-	const companies = companiesRes.ok ? await companiesRes.json() : [];
+	// MSSanté addresses stay in Twenty but are not offered: nobody outside that
+	// closed network can reach them. The backend refuses them as well.
+	const companies = withoutClosedNetworks(companiesRes.ok ? await companiesRes.json() : []);
 	const templates = templatesRes.ok ? await templatesRes.json() : [];
 	const companyTypes = typesRes.ok ? await typesRes.json() : [];
 	const addressStats: Record<string, { total_sent: number; last_sent_at: string | null }> =

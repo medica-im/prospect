@@ -21,7 +21,8 @@ from datetime import datetime, timezone
 from django.conf import settings
 from django.db import IntegrityError, transaction
 
-from ..models import DeliveryEvent, SentEmail
+from ..models import DeliveryEvent, MailgunSuppression, SentEmail
+from .closed_networks import is_closed_network
 from .unsubscribe import normalize
 
 logger = logging.getLogger(__name__)
@@ -51,6 +52,11 @@ _DOMAIN_MISSING_WORDS = (
     "nxdomain", "unrouteable address", "unroutable address",
 )
 _MAILBOX_FULL_WORDS = ("mailbox full", "over quota", "quota exceeded", "mailbox is full")
+# The account exists on paper but is closed: 5.7.13 is Microsoft's "Disabled
+# recipient address"; free.fr answers 5.2.1 "blocked due to inactivity". Both would
+# otherwise read as a policy block (5.7.x, the word "blocked").
+_ACCOUNT_CLOSED_CODES = ("5.7.13",)
+_ACCOUNT_CLOSED_WORDS = ("disabled recipient", "due to inactivity")
 
 
 @dataclass
@@ -128,6 +134,14 @@ def classify_failure(
 
     # An explicit "no such mailbox" code beats keyword guesses below.
     if enhanced_code in _MAILBOX_MISSING_CODES:
+        return SentEmail.DELIVERY_BOUNCED, SentEmail.BOUNCE_MAILBOX_MISSING
+
+    if enhanced_code in _ACCOUNT_CLOSED_CODES or any(word in text for word in _ACCOUNT_CLOSED_WORDS):
+        return SentEmail.DELIVERY_BOUNCED, SentEmail.BOUNCE_MAILBOX_MISSING
+
+    # Exchange Online answers a recipient that is not in the tenant (a person who
+    # left) with "5.4.1 Recipient address rejected: Access denied".
+    if enhanced_code == "5.4.1" and "access denied" in text:
         return SentEmail.DELIVERY_BOUNCED, SentEmail.BOUNCE_MAILBOX_MISSING
 
     if enhanced_code.startswith("5.7.") or any(word in text for word in _BLOCKED_WORDS):
@@ -323,6 +337,69 @@ def latest_results() -> dict[str, SentEmail]:
     return latest
 
 
+_PROBLEM_STATUSES = (
+    SentEmail.DELIVERY_BOUNCED, SentEmail.DELIVERY_SUPPRESSED, SentEmail.DELIVERY_COMPLAINED,
+)
+
+
+def is_problem_attempt(row: SentEmail) -> bool:
+    """True when this send did not get through: Mailgun refused it, or it bounced."""
+    return not row.success or row.delivery_status in _PROBLEM_STATUSES
+
+
+def address_histories(addresses: set[str] | None = None) -> dict[str, list[SentEmail]]:
+    """Every send per (normalized) recipient address, oldest first.
+
+    `addresses` limits the result to those addresses (already normalized).
+    """
+    histories: dict[str, list[SentEmail]] = {}
+    for row in SentEmail.objects.order_by("sent_at", "id"):
+        address = normalize(row.company_email)
+        if addresses is None or address in addresses:
+            histories.setdefault(address, []).append(row)
+    return histories
+
+
+def problem_run_start(history: list[SentEmail], last: SentEmail) -> datetime | None:
+    """When the current run of failed sends to an address began.
+
+    The run is the unbroken stretch of sends ending at `last` that were refused,
+    bounced, or are still being retried. A delivered send (or one with no news
+    yet) ends it, so an address that bounced, was fixed, and bounced again
+    counts from the second bounce.
+    """
+    start = None
+    for row in reversed(history[: history.index(last) + 1]):
+        if is_problem_attempt(row) or row.delivery_status == SentEmail.DELIVERY_DEFERRED:
+            start = row.sent_at
+        else:
+            break
+    return start
+
+
+def bounce_detail(code: str, error: str) -> str:
+    """"550 5.1.1 The email account does not exist" on one line (Mailgun keeps newlines)."""
+    return " ".join(part for part in (code, " ".join((error or "").split())) if part)
+
+
+def listed_reasons(addresses: set[str]) -> dict[str, tuple[str, str]]:
+    """(bounce_class, detail) from Mailgun's own bounce/complaint list, per address.
+
+    For a suppressed address with no bounce of ours to show: Mailgun's list holds
+    the original SMTP code and message (see MailgunSuppression). The bounce list
+    wins over the complaint list.
+    """
+    reasons: dict[str, tuple[str, str]] = {}
+    for row in MailgunSuppression.objects.filter(address__in=addresses).order_by("kind"):
+        if row.address in reasons:
+            continue
+        if row.kind == MailgunSuppression.KIND_BOUNCE:
+            reasons[row.address] = (row.bounce_class, bounce_detail(row.code, row.error))
+        else:
+            reasons[row.address] = ("", f"Spam complaint listed by Mailgun on {row.listed_at:%Y-%m-%d}")
+    return reasons
+
+
 def undeliverable_addresses() -> set[str]:
     """Addresses that must not be mailed: no mailbox/domain, refused, or complained."""
     return {
@@ -338,16 +415,20 @@ def problem_addresses(dead_only: bool = True) -> list[dict]:
     the ones that are only temporarily problematic (full mailbox, policy block,
     other permanent failure).
     """
-    problem_statuses = (
-        SentEmail.DELIVERY_BOUNCED, SentEmail.DELIVERY_SUPPRESSED, SentEmail.DELIVERY_COMPLAINED,
-    )
+    flagged = {
+        address: row for address, row in latest_results().items()
+        if not is_closed_network(address)
+        and (is_dead(row.delivery_status, row.bounce_class) if dead_only
+            else row.delivery_status in _PROBLEM_STATUSES)
+    }
+    histories = address_histories(set(flagged))
+    listed = listed_reasons({
+        address for address, row in flagged.items()
+        if row.delivery_status == SentEmail.DELIVERY_SUPPRESSED
+    })
     rows = []
-    for address, row in latest_results().items():
-        if dead_only:
-            if not is_dead(row.delivery_status, row.bounce_class):
-                continue
-        elif row.delivery_status not in problem_statuses:
-            continue
+    for address, row in flagged.items():
+        history = histories[address]
         attempts = SentEmail.objects.filter(
             success=True, company_email__iexact=address,
         ).count()
@@ -366,6 +447,8 @@ def problem_addresses(dead_only: bool = True) -> list[dict]:
             )
             if original:
                 bounce_class, detail = original.bounce_class, original.delivery_detail
+            elif address in listed:
+                bounce_class, detail = listed[address]
         rows.append({
             "address": address,
             "company_name": row.company_name,
@@ -375,6 +458,8 @@ def problem_addresses(dead_only: bool = True) -> list[dict]:
             "delivery_detail": detail,
             "last_event_at": row.delivery_updated_at,
             "emails_sent": attempts,
+            "first_sent_at": history[0].sent_at,
+            "first_problem_at": problem_run_start(history, row),
         })
     rows.sort(key=lambda r: (r["last_event_at"] is None, r["last_event_at"]), reverse=True)
     return rows
